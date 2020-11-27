@@ -8,13 +8,13 @@ Databases of players can be tracked over time and viewed interactively in predef
 Example usage (with exisiting database 'senior-national-squads'):
 
 
->>> PlayerDatabase.download_database('senior-national-squads')
-#Downloads database based on config file senior-national-squads/senior-national-squads.config
+> PlayerDatabase.download_database('senior-national-squads')
+> #Downloads database based on config file senior-national-squads/senior-national-squads.config
 
->>> PresentData.database_rating_increase_scatter('senior-national-squads', group1_db_entry=[46, 2], group2_db_entry=[46, 3])
-#graphs rating increase per week/age of all players in senior-national-squads, colored by team and interactive tooltip with the mouse. 
-#db_entry format [seasonnumber, weeknumber]
-#requires relevent database to have been downloaded with download_database at the correct times
+> PresentData.database_rating_increase_scatter('senior-national-squads', group1_db_entry=[46, 2], group2_db_entry=[46, 3])
+> #graphs rating increase per week/age of all players in senior-national-squads, colored by team and interactive tooltip with the mouse. 
+> #db_entry format [seasonnumber, weeknumber]
+> #requires relevent database to have been downloaded with download_database at the correct times
 
 
 Functional, but undocumented and still in development. 
