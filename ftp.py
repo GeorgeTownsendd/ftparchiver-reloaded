@@ -1,372 +1,960 @@
 import os
 import time
 import datetime
-import pickle
 import re
 from robobrowser import RoboBrowser
 import pandas as pd
+import shutil
+import ast
+import itertools
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as datacolors
-import matplotlib.patches as mpatches
 import matplotlib
-import openpyxl
-from colour import Color
-from pytz import timezone
-import pause
-import imageio
-import calendar
+import matplotlib.pyplot as plt
+import mplcursors
 
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
 SKILL_LEVELS = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
 browser = None
 
-
 with open('credentials.txt', 'r') as f:
     CREDENTIALS = f.readline().split(',')
 
-class Player():
-    def __init__(self, ID, market_info=None):
-        self.class_version = '1.5'
-        self.ID = ID
-        self.instancetime = str(int(time.time()))
 
-        player_page = pages_from_id(self.ID, t = 'player')
-        stats = self.player_stats_from_page(player_page)
-        stats['Age'] = stats['Age'][:2] + '.' + stats['Age'][9:11]
-        self.stats = stats
+class PlayerDatabase():
+    global_settings = ['name', 'description', 'database_type', 'w_directory', 'archive_days', 'scrape_time', 'additional_columns']
 
-        if market_info != None:
-            bid, team_bid = market_info['Current Bid'].split(' ', 1)
-            deadline = datetime.datetime.strptime(market_info['Deadline'], '%d %b %Y%H:%M')
+    @staticmethod
+    def generate_config_file(database_settings, additional_settings):
+        if database_settings['w_directory'][-1] != '/':
+            database_settings['w_directory'] += '/'
+        conf_file = database_settings['w_directory'] + database_settings['name'] + '.config'
 
-            self.stats['Name'] = market_info['Player']
-            self.stats['Current Bid'] = bid
-            self.stats['Current Buyer'] = team_bid
-            self.stats['Deadline'] = deadline
-            self.stats['Price'] = -1
+        if not os.path.exists(database_settings['w_directory']):
+            os.makedirs(database_settings['w_directory'])
+            log_event('Creating directory {}'.format(database_settings['w_directory']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
 
-    def print_self(self):
-        if 'Price' not in self.stats.keys():
-            self.stats['Price'] = - 1
-        cata_skills = ['Bat.', 'Bowl.', 'Tech.', 'Field.', 'Power', 'End.', 'Keep.', 'Capt.', 'Exp.']
-        named_skills = ['Bats', 'Bowls', 'Nat.', 'Talents']
-        num_skills = ['Price', 'Age', 'Rating', 'Wage']
+        if os.path.isfile(conf_file):
+            shutil.copy(conf_file, conf_file + '.old')
+            log_event('Config file {} already exisits, copying to {} and creating new file'.format(conf_file, conf_file + '.old'), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
 
-        print('--- PLAYER ID: {} ---\n'.format(self.ID))
-        for skill in num_skills + named_skills + cata_skills:
-            if skill == cata_skills[0] or skill == named_skills[0]:
-                print('\n\n')
-            print('{} : {}'.format(skill, self.stats[skill]))
+        with open(conf_file, 'w') as f:
+            for setting in PlayerDatabase.global_settings:
+                try:
+                    f.write('{}:{}\n'.format(setting, database_settings[setting]))
+                except KeyError:
+                    if setting in ['archive_days', 'scrape_time'] and database_settings['database_type'] == 'transfer_market_search':
+                        pass
+                    else:
+                        raise KeyError
 
-        print('\n--- end of {} ---\n'.format(self.ID))
+            for setting in additional_settings.keys():
+                if setting == 'teamids':
+                    f.write('{}:{}\n'.format(setting, ','.join([str(teamid) for teamid in additional_settings[setting]])))
+                else:
+                    f.write('{}:{}\n'.format(setting, additional_settings[setting]))
 
-    def player_stats_from_page(self, page):
-        info = pd.read_html(page)
-        infodic = {}
-        for x in range(0, len(info[0]), 2):
-            try:
-                for stat in zip(info[0][x], info[0][x + 1]):
-                    infodic[stat[0]] = stat[1]
-            except:
-                pass
-        return infodic
+        log_event('Successfully created config file {}'.format(conf_file), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
 
-    def calculate_spare_ratings(self, r=False):
-        skill_rating_sum = 0
-        for skill in ['Bat.', 'Bowl.', 'Keep.', 'Field.', 'End.', 'Tech.', 'Power']:
-            if SKILL_LEVELS.index(self.stats[skill]) == 0:
-                skill_rating_sum += 500
+    @staticmethod
+    def load_config_file(config_file_directory):
+        if '/' not in config_file_directory:
+            config_file_directory = config_file_directory + '/' + config_file_directory + '.config'
+
+        database_settings = {}
+        additional_settings = {}
+        all_file_values = {}
+        with open(config_file_directory, 'r') as f:
+            config_file_lines = [line.rstrip() for line in f.readlines()]
+            for n, line in enumerate(config_file_lines):
+                setting_name, value = line.split(':', 1)
+                if setting_name in ['additional_columns', 'archive_days', 'teamids']:
+                    all_file_values[setting_name]= value.split(',')
+                elif setting_name in ['scrape_time']:
+                    all_file_values[setting_name] = value.split(':')
+                else:
+                    all_file_values[setting_name] = value
+
+        for setting_name in all_file_values.keys():
+            if setting_name in PlayerDatabase.global_settings:
+                database_settings[setting_name] = all_file_values[setting_name]
             else:
-                skill_rating_sum += (SKILL_LEVELS.index(self.stats[skill]) * 1000)
+                additional_settings[setting_name] = all_file_values[setting_name]
 
-        spare_ratings = int(self.stats['Rating']) - skill_rating_sum
-        print('{} spare rating for player {}'.format(spare_ratings, self.ID))
+        return database_settings, additional_settings
 
-        if r:
-            return spare_ratings
-
-def log_event(logtext, logtype, logfile):
-    current_time = datetime.datetime.now()
-    if logfile == 'default':
-        logfile = 'ftp_archiver_output_history.txt'
-    if logtype in ['full', 'console']:
-        print('[{}] '.format(current_time.strftime('%m/%d/%Y-%H:%M:%S')) + logtext)
-    if logtype in ['full', 'file']:
-        with open(logfile, 'a') as f:
-            f.write('[{}] '.format(current_time.strftime('%m/%d/%Y-%H:%M:%S')) + logtext + '\n')
-
-def load_transfer_history(ID, database_dir='players/'):
-    transferdir = database_dir + str(ID) + '/' + 'transfer.txt'
-    sales = []
-    with open(transferdir, 'r') as playerfile:
-        for sale in playerfile.readlines():
-            sale = sale[:-1]
-            sale = sale.split(',')
-            sales.append(sale)
-
-    return sales[0] if time == 'recent' and len(sales) > 0 else sales
-
-def save_player_instance(player, database_dir='players/'):
-    if not os.path.exists(database_dir):
-        os.mkdir(database_dir)
-
-    playerdir = database_dir + str(player.ID) + '/'
-    if not os.path.exists(playerdir):
-        os.mkdir(playerdir)
-
-    filename = database_dir + str(player.ID) + '/' + str(player.instancetime)
-    with open(filename, 'wb') as playerfile:
-        pickle.dump(player, playerfile)
-
-def load_player_instance(ID, instancetime, database_dir='players/'):
-    playerdir = database_dir + str(ID) + '/'
-    if isinstance(instancetime, type(list)):
-        instancetime = instancetime[0][0]
-
-    filename = playerdir + str(instancetime)
-    with open(filename, 'rb') as playerfile:
-        player = pickle.load(playerfile)
-    if os.path.exists(database_dir + '/{}/transfer.txt'.format(ID)):
-        transfer_history = load_transfer_history(ID, database_dir=database_dir)
-        #print(ID, transfer_history)
-        for sale in transfer_history:
-            offset = abs((datetime.datetime.strptime(sale[0], '%d %b %y %H %M') - player.stats['Deadline']))
-            if offset.total_seconds() < 14400:
-                player.sale_type = 'Completed'
-                player.stats['Deadline'] = datetime.datetime.strptime(sale[0], '%d %b %y %H %M')
-                player.stats['Price'] = sale[3]
-                player.stats['Winning Bid'] = sale[2]
-                break
-        else:
-            player.sale_type = 'Incomplete'
-            player.stats['Winning Bid'] = None
-
-        return player
-    else:
-        print('Transfer history not saved for {}'.format(ID))
-        player.sale_type = 'Unknown'
-        return player
-
-def load_player_instances(ID, instancetimes='all', duplicates=False, database_dir='players/'):
-    sold_instances = []
-    unsold_instances = []
-    player_instancetimes = []
-
-    if instancetimes == 'all':
-        player_instancetimes = [x for x in os.listdir(database_dir + str(ID) + '/') if x.isdigit()]
-
-    if instancetimes == 'recent':
-        player_instancetimes = sorted([x for x in os.listdir(database_dir + str(ID) + '/') if x.isdigit()], key = lambda x : int(x))
-
-    for t in player_instancetimes:
-        try:
-            p = load_player_instance(ID, instancetime=t, database_dir=database_dir)
-            if p.sale_type == 'Completed':
-                if not duplicates:
-                    if not p.stats['Deadline'] in [t.stats['Deadline'] for t in sold_instances]:
-                        sold_instances.append(p)
-                else:
-                    sold_instances.append(p)
-            elif p.sale_type == 'Incomplete':
-                if not duplicates:
-                    if not p.stats['Deadline'] in [t.stats['Deadline'] for t in unsold_instances]:
-                        unsold_instances.append(p)
-                else:
-                    unsold_instances.append(p)
-        except ModuleNotFoundError:
-            print('Module not found: ftparchiver (ID: {})'.format(ID))
-
-        except EOFError:
-            print('Pickle end of file error (ID: {})'.format(ID))
-
-    if instancetimes == 'all':
-        return sorted(sold_instances + unsold_instances, key = lambda x : x.instancetime)
-
-    elif instancetimes == 'recent':
-        return sorted(sold_instances + unsold_instances, key = lambda x : x.instancetime)[-1:]
-
-def load_players(players, instancetimes, database_dir='players/'):
-    if (type(players) == str or type(players) == int) and players != 'all':
-        players = [players]
-    loaded_instances = []
-    if players == 'all':
-        players = [x for x in os.listdir(database_dir) if x.isdigit()]
-
-    for p in players:
-        player_instances = load_player_instances(p, instancetimes=instancetimes, database_dir=database_dir)
-        for t in player_instances:
-            loaded_instances.append(t)
-
-    return loaded_instances
-
-
-def transfer_history_from_page(page):
-    page = page[page.index('Player Transfers'):]
-
-    prices = [re.sub("\D", "", p) for p in re.findall('\$[0-9]{0,3}[,0-9{3}]+', page)]
-    dates = [' '.join(x) for x in re.findall('(\d{2}) (\w{3}) (\d{2})<br/>(\d{2}):(\d{2})', page)] #time.strptime(' '.join(t[0]), '%d %b %y %H %M')
-    teams = [x[7:] for x in re.findall('teamId=\d+', page)]
-    ratings = [re.sub(',', '', x) for x in re.findall('\d{1,2},\d{3}', page)[1::2]] #only every 2nd item returned by findall is a rating
-
-    return [(dates[i], teams[i*2], teams[(i*2) + 1], prices[i], ratings[i]) for i in range(len(prices))]
-
-def save_transfer_history(players, database_dir = 'players/'):
-    for n, player in enumerate([str(x) for x in players]):
-        print(player)
-        transfer_data = transfer_history_from_page(pages_from_id(player, t='playertransfer'))
-        print(transfer_data)
-
-        playerdir = database_dir + (str(player.ID) if not (type(player) == int or type(player) == str) else player) + '/'
-        print(playerdir)
-        if not os.path.exists(playerdir):
-            os.mkdir(playerdir)
-
-        transferdir = playerdir + 'transfer.txt'
-
-        with open(transferdir, 'w') as f:
-            for line in transfer_data:
-                f.write(str(','.join(line)) + '\n')
-
-def scrape_transfer_market(pages=-1, database_dir = 'players/', logtype ='full', logfile = 'default'):
-    global browser, CREDENTIALS
-    while pages != 0:
-        current_page = get_current_transfers(logtype=logtype, logfile=logfile)
-
-        current_players = [Player(t['ID'], market_info=t) for t in current_page]
-        for player in current_players:
-            save_player_instance(player, database_dir=database_dir)
-
-        log_event('Successfully saved players to disk.', logtype=logtype, logfile=logfile)
-
-        next_refresh = current_players[-1].stats['Deadline'] - datetime.timedelta(minutes=1)
-
-        next_refresh_local = next_refresh + datetime.timedelta(hours=10) #for SYDNEY NSW (DAYLIGHT SAVINGS!)
-        log_event('Pausing program until current page is complete. Restarting at {} UTC ({} local time)'.format(next_refresh.strftime('%m/%d/%Y-%H:%M:%S'), next_refresh_local.strftime('%m/%d/%Y-%H:%M:%S')), logtype=logtype, logfile=logfile)
-        pause.until(next_refresh_local)
-        log_event('\tProgram execution successfully resumed.' + ' {} pages remaining.'.format(pages) if pages > 1 else '\tProgram execution successfully resumed.', logtype=logtype, logfile=logfile)
-        pages -= 1
-
-def pages_from_id(ID, t='player'):
-    global browser
-    if t == 'player':
-        #print('Downloading player ' + str(ID))
-        browser.open('http://www.fromthepavilion.org/playerpopup.htm?playerId={}&amp;showExtraSkills=true&amp;club=true'.format(ID))
-        pages_data = str(browser.parsed)
-    elif t == 'playertransfer':
-        print('Downloading transfer history for ' + str(ID))
-        browser.open('http://www.fromthepavilion.org/playertransfers.htm?playerId={}'.format(ID))
-        pages_data = str(browser.parsed)
-    elif t == 'match':
-        print('Downloading match ' + str(ID))
-        browser.open('https://www.fromthepavilion.org/commentary.htm?gameId={}'.format(ID))
-        commentary_data = str(browser.parsed)
-        browser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(ID))
-        scorecard_data = str(browser.parsed)
-        browser.open('https://www.fromthepavilion.org/ratings.htm?gameId={}'.format(ID))
-        matchratings_data = str(browser.parsed)
-
-        pages_data = [commentary_data, scorecard_data, matchratings_data]
-
-    return pages_data
-
-
-def playername_from_id(player_id, download_name=False, age_thres=2419200, playernames_file = 'players/player_names.txt', b = '', player_page=None):
-    if b == '':
+    @staticmethod
+    def player_search(search_settings={}, to_file=False, search_type='transfer_market', extra_columns=False, normalize_age=False, additional_columns=False, ind_level=0):
         global browser
+        check_login()
 
-    else:
-        browser = b
+        if search_type != 'all':
+            log_event('Searching {} for players with parameters {}'.format(search_type, search_settings), ind_level=ind_level)
+            url = 'https://www.fromthepavilion.org/{}.htm'
+            if search_type == 'transfer_market':
+                url = url.format('transfer')
+            elif search_type == 'nat_search':
+                url = url.format('natsearch')
+            browser.open(url)
+            search_settings_form = browser.get_form()
 
-    player_exists_locally = False
-    loaded_players = []
-    with open(playernames_file, 'r') as f:
-        for player in f.readlines():
-            loaded_players.append(player[:-1].split(','))
+            for setting in search_settings.keys():
+                search_settings_form[setting] = str(search_settings[setting])
 
-    for player in loaded_players:
-        if int(player[0]) == int(player_id):
-            if int(player[2]) - int(time.time()) < age_thres:
-                print('Player {} found!\n\t{}: {}'.format(player_id, player_id, player[1]))
-                return player[1]
+            browser.submit_form(search_settings_form)
+            players_df = pd.read_html(str(browser.parsed))[0]
+
+        if search_type == 'transfer_market':
+            del players_df['Nat']
+            player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+            region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.parsed))][9:]
+            players_df.insert(loc=3, column='Nat', value=region_ids)
+            players_df.insert(loc=1, column='PlayerID', value=player_ids)
+            players_df['Deadline'] = [deadline[:-5] + ' ' + deadline[-5:] for deadline in players_df['Deadline']]
+            cur_bids_full = [bid for bid in players_df['Current Bid']]
+            split_bids = [b.split(' ', 1) for b in cur_bids_full]
+            bids = [b[0] for b in split_bids]
+            team_names = pd.Series([b[1] for b in split_bids])
+            bid_ints = [int(''.join([x for x in b if x.isdigit()])) for b in bids]
+            players_df['Current Bid'] = pd.Series(bid_ints)
+            players_df.insert(loc=3, column='Bidding Team', value=team_names)
+
+        elif search_type == 'nat_search':
+            del players_df['Unnamed: 13']
+            player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+            players_df.insert(loc=1, column='PlayerID', value=player_ids)
+
+        elif search_type == 'all':
+            if 'pages' not in search_settings.keys():
+                search_settings['pages'] = 1
+
+            browser.open('https://www.fromthepavilion.org/playerranks.htm?regionId=1')
+            search_settings_form = browser.get_forms()[0]
+
+            for search_setting in ['nation', 'region', 'age', 'wagesort']:
+                if search_setting in search_settings.keys():
+                    if search_setting == 'nation':
+                        search_settings_form['country'].value = str(search_settings[search_setting])
+                    elif search_setting == 'wagesort':
+                        search_settings_form['sortByWage'].value = str(search_settings[search_setting])
+                    else:
+                        search_settings_form[search_setting].value = str(search_settings[search_setting])
+
+            player_ids = []
+            region_ids = []
+            players_df = pd.DataFrame()
+
+            log_event('Searching for best players with parameters {}'.format(search_settings), ind_level=ind_level)
+            for page in range(int(search_settings['pages'])):
+                search_settings_form['page'].value = str(page)
+                browser.submit_form(search_settings_form)
+
+                pageplayers_df = pd.read_html(str(browser.parsed))[1]
+                players_df = players_df.append(pageplayers_df)
+
+                page_player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+                page_region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.parsed))][20:]
+
+                player_ids += page_player_ids
+                region_ids += page_region_ids
+
+                # log_event('Downloaded page {}/{}...'.format(page + 1, int(search_settings['pages'])), logtype='console', ind_level=1)
+
+            del players_df['Nat']
+            players_df.insert(loc=3, column='Nat', value=region_ids)
+            players_df.insert(loc=1, column='PlayerID', value=player_ids)
+            players_df['Wage'] = players_df['Wage'].str.replace('\D+', '')
+
+        if normalize_age:
+            players_df['Age'] = FTPUtils.normalize_age(players_df['Age'])
+
+        if additional_columns:
+            players_df = PlayerDatabase.add_player_columns(players_df, additional_columns, ind_level=ind_level+1)
+
+        players_df.drop(columns=[x for x in ['#', 'Unnamed: 18'] if x in players_df.columns], inplace=True)
+
+        if to_file:
+            pd.DataFrame.to_csv(players_df, to_file, index=False, float_format='%.2f')
+
+        return players_df
+
+    @staticmethod
+    def download_database(config_file_directory, preserve_exisiting=False, return_next_runtime=False, ind_level=0):
+        global browser
+        check_login()
+        log_event('Downloading database {}'.format(config_file_directory.split('/')[-1]), ind_level=ind_level)
+
+        if '/' not in config_file_directory:
+            config_file_directory = config_file_directory + '/' + config_file_directory + '.config'
+
+        database_settings, additional_settings = PlayerDatabase.load_config_file(config_file_directory)
+        if 'additional_columns' not in database_settings.keys():
+            database_settings['additional_columns'] = False
+
+        browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
+        timestr = re.findall('Week [0-9]+, Season [0-9]+', str(browser.parsed))[0]
+        week, season = timestr.split(',')[0].split(' ')[-1], timestr.split(',')[1].split(' ')[-1]
+
+        if database_settings['database_type'] != 'transfer_market_search':
+            season_dir = database_settings['w_directory'] + 's{}/w{}/'.format(season, week)
+        else:
+            season_dir = database_settings['w_directory'] + '/s{}/w{}/'.format(season, week)
+
+        if not os.path.exists(season_dir):
+            os.makedirs(season_dir)
+            log_event('Creating directory {}'.format(season_dir), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'], ind_level=ind_level)
+
+        player_df = pd.DataFrame()
+        if database_settings['database_type'] in ['domestic_team', 'national_team']:
+            for teamid in additional_settings['teamids']:
+                player_df.append(FTPUtils.get_team_players(teamid, age_group=additional_settings['age'], to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, teamid), ind_level=ind_level+1, additional_columns=database_settings['additional_columns']))
+        elif database_settings['database_type'] == 'best_player_search':
+            for nationality_id in additional_settings['teamids']:
+                additional_settings['nation'] = nationality_id
+                player_df.append(PlayerDatabase.player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), ind_level=ind_level+1), additional_columns=database_settings['additional_columns'])
+        elif database_settings['database_type'] == 'transfer_market_search':
+            player_df = PlayerDatabase.player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1)
+            player_df.to_csv(database_settings['w_directory'] + '/s{}/w{}/{}.csv'.format(season, week, player_df['Deadline'][0] + ' - ' + player_df['Deadline'][len(player_df['Deadline'])-1]))
+
+        #log_event('Successfully saved {} players from database {}'.format(len(player_df.PlayerID), database_settings['name']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
+        if return_next_runtime:
+            if database_settings['database_type'] != 'transfer_market_search':
+                return PlayerDatabase.next_run_time([database_settings, additional_settings])
             else:
-                player_exists_locally = True
-                print('Player {} found, but name is beyond threshold age...'.format(player_id))
-                break
+                return datetime.datetime.strptime(player_df['Deadline'][len(player_df['Deadline'])-1] + ' +0000', '%d %b %Y %H:%M %z')
 
-    if download_name or player_page != None:
-        if download_name:
-            print('Downloading player {}...'.format(player_id))
-            browser.open('http://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
-            page = str(browser.parsed)
+
+    @staticmethod
+    def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0):
+        if database[-1] != '/':
+            database += '/'
+
+        predicted_log_file = database + database.split('/')[-2] + '.log' #if name of database is the name of it's working directory
+        if os.path.exists(predicted_log_file):
+            log_files = ['default', predicted_log_file]
         else:
-            page = player_page
+            log_files = ['default']
+
+        data_file = database + 's{}/w{}/{}.csv'.format(season, week, groupid)
+        if os.path.isfile(data_file):
+            players = pd.read_csv(data_file, float_precision=2)
+            if normalize_age:
+                players['Age'] = pd.Series(FTPUtils.normalize_age(players['Age']))
+            return players
+        else:
+            log_event('Error loading database entry (file not found): {}'.format(data_file), logtype='full', logfile=log_files, ind_level=ind_level)
+
+    @staticmethod
+    def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0):
+        check_login()
+        log_event('Saving additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
+
+        all_player_data = []
+        hidden_training_n = 0
+        for player_id in player_df['PlayerID']:
+            player_data = []
+            if 'Training' in column_types:
+                browser.open('https://www.fromthepavilion.org/playerpopup.htm?playerId={}'.format(player_id))
+                popup_page_info = pd.read_html(str(browser.parsed))
+                try:
+                    training_selection = popup_page_info[0][3][9]
+                except KeyError: #player training not visible to manager
+                    training_selection = 'Hidden'
+                    hidden_training_n += 1
+
+            if column_types != ['Training']:
+                browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
+                player_page = str(browser.parsed)
+
+            for column_name in column_types:
+                if column_name == 'Training':
+                    player_data.append(training_selection)
+
+                elif column_name == 'Wage':
+                    player_wage = FTPUtils.get_player_wage(player_id, player_page, normalize_wages)
+                    player_data.append(player_wage)
+
+                elif column_name == 'Nat':
+                    player_nationality_id = FTPUtils.get_player_nationality(player_id, player_page)
+                    player_data.append(player_nationality_id)
+
+                elif column_name == 'NatSquad':
+                    if 'This player is a member of the national squad' in player_page:
+                        player_data.append(True)
+                    else:
+                        player_data.append(False)
+
+                elif column_name == 'TeamID':
+                    player_teamid = FTPUtils.get_player_teamid(player_id, player_page)
+                    player_data.append(player_teamid)
+
+                elif column_name == 'SpareRat':
+                    player_data.append(FTPUtils.get_player_spare_ratings(player_df[player_df['PlayerID'] == player_id].iloc[0]))
+
+                elif column_name == 'SkillShift':
+                    skillshifts = FTPUtils.get_player_skillshifts(player_id, page=player_page)
+                    player_data.append('-'.join(skillshifts.keys()) if len(skillshifts.keys()) >= 1 else None)
+
+                else:
+                    player_data.append('UnknownColumn')
+
+            all_player_data.append(player_data)
+
+        if hidden_training_n > 0:
+            log_event('Training not visible for {}/{} players - marked "Hidden" in dataframe'.format(hidden_training_n, len(player_df['PlayerID'])), ind_level=ind_level+1)
+
+        for n, column_name in enumerate(column_types):
+            values = [v[n] for v in all_player_data]
+            player_df.insert(3, column_name, values)
+
+        if returnsortcolumn in player_df.columns:
+            player_df.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
+
+        return player_df
+
+    @staticmethod
+    def match_pg_ids(pg1, pg2, returnsortcolumn='Player'):
+        shared_ids = [x for x in pg1['PlayerID'] if x in [y for y in pg2['PlayerID']]]
+
+        pg1_shared = pg1[(pg1['PlayerID'].isin(shared_ids))].copy()
+        pg2_shared = pg2[(pg2['PlayerID'].isin(shared_ids))].copy()
+
+        pg1_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
+        pg2_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
+
+        rating_differences = pg2_shared['Rating'] - pg1_shared['Rating']
+        wage_differences = pg2_shared['Wage'] - pg1_shared['Wage']
+        pg1_shared.insert(len(pg1_shared.columns), 'Ratdif', rating_differences)
+        pg2_shared.insert(len(pg2_shared.columns), 'Ratdif', rating_differences)
+        pg1_shared.insert(len(pg1_shared.columns), 'Wagedif', wage_differences)
+        pg2_shared.insert(len(pg2_shared.columns), 'Wagedif', wage_differences)
+
+        pg1_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
+        pg2_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
+
+        return pg1_shared, pg2_shared
+
+    @staticmethod
+    def next_run_time(db_config_file):
+        current_datetime = datetime.datetime.now(datetime.timezone.utc)# - datetime.timedelta(days=1)
+        db_scrape_hour, db_scrape_minute = db_config_file[0]['scrape_time']
+
+        db_days = db_config_file[0]['archive_days']
+
+        weekly_runtimes = []
+        for day in db_days:
+            day = int(day)
+            days_ahead = day - current_datetime.weekday()
+            if days_ahead < 0:  # Target day already happened this week
+                days_ahead += 7
+            next_run_datetime = current_datetime + datetime.timedelta(days_ahead)
+            next_run_datetime = next_run_datetime.replace(hour=int(db_scrape_hour), minute=int(db_scrape_minute), second=0, microsecond=0)
+            weekly_runtimes.append(next_run_datetime)
+
+        weekly_runtimes.sort()
+        for runtime in weekly_runtimes:
+            if runtime > current_datetime:
+                return runtime
+        else:
+            return weekly_runtimes[0] + datetime.timedelta(days=7)
+
+    @staticmethod
+    def watch_database_list(database_list, ind_level = 0):
+        loaded_database_dict = {}
+        database_stack = []
+        for database_name in database_list:
+            conf_data = PlayerDatabase.load_config_file(database_name)
+            if conf_data[0]['database_type'] != 'transfer_market_search':
+                db_next_runtime = PlayerDatabase.next_run_time(conf_data)
+                loaded_database_dict[database_name] = [conf_data, db_next_runtime]
+                database_stack.append([database_name, db_next_runtime])
+            else:
+                current_datetime = datetime.datetime.now(datetime.timezone.utc)
+                loaded_database_dict[database_name] = [conf_data, current_datetime]
+                database_stack.append([database_name, current_datetime])
+
+        while True:
+            current_datetime = datetime.datetime.now(datetime.timezone.utc)
+            seconds_until_next_run = int((database_stack[0][1] - current_datetime).total_seconds())
+            if seconds_until_next_run > 0:
+                log_event('Sleeping {} seconds until {} runtime at {}'.format(seconds_until_next_run, database_stack[0][0], database_stack[0][1]), ind_level=ind_level)
+                time.sleep(seconds_until_next_run)
+
+            db_next_runtime = PlayerDatabase.download_database(database_stack[0][0], return_next_runtime=True)
+            log_event('Database {} will be downloaded again at {}'.format(database_stack[0][0], db_next_runtime), ind_level=ind_level)
+            database_stack[0][1] = db_next_runtime
+            database_stack = sorted(database_stack, key=lambda x: x[1])
+
+        return database_stack
+
+    def __init__(self, config_file_directory):
+        self.database_settings, self.additional_settings = self.load_config_file(config_file_directory)
+
+
+class FTPUtils():
+    @staticmethod
+    def nationality_id_to_rgba_color(natid):
+        nat_colors = ['darkblue', 'red', 'forestgreen', 'black', 'mediumseagreen', 'darkkhaki', 'maroon', 'firebrick', 'darkgreen', 'firebrick', 'tomato', 'royalblue', 'brown', 'darkolivegreen', 'olivedrab', 'purple', 'lightcoral', 'darkorange']
+
+        return matplotlib.colors.to_rgba(nat_colors[natid-1])
+
+    @staticmethod
+    def nationality_id_to_name_str(natid, full_name=False):
+        natid = int(natid)
+        nat_name_short = ['AUS', 'ENG', 'IND', 'NZL', 'PAK', 'SA', 'WI', 'SRI', 'BAN', 'ZWE', 'CAN', 'USA', 'KEN', 'SCO', 'IRE', 'UAE', 'BER', 'NL']
+        nat_name_long = ['Australia', 'England', 'India', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies', 'Sri Lanka', 'Bangladesh', 'Zimbabwe', 'Canada', 'USA', 'Kenya', 'Scotland', 'Ireland', 'UAE', 'Bermuda', 'Netherlands']
+
+        return nat_name_long[natid-1] if full_name else nat_name_short[natid-1]
+
+    @staticmethod
+    def skill_word_to_index(skill_w, skill_word_type='full'):
+        SKILL_LEVELS_FULL = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
+        SKILL_LEVELS_SHORT = ['atroc', 'dread', 'poor', 'ordin', 'avg', 'reas', 'capab', 'reli', 'accom', 'exprt', 'outs', 'spect', 'excep', 'wclas', 'elite', 'legen']
+
+        if str(skill_w) == 'nan':
+            return -1
+
+        if skill_word_type == 'full':
+            skill_n = SKILL_LEVELS_FULL.index(skill_w)
+        elif skill_word_type == 'short':
+            skill_n = SKILL_LEVELS_SHORT.index(skill_w)
+        else:
+            skill_n = -1
+
+        return skill_n
+
+    @staticmethod
+    def get_player_page(player_id):
+        check_login()
+
+        browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
+        page = str(browser.parsed)
+
+        return page
+
+    @staticmethod
+    def get_player_spare_ratings(player_df, col_name_len='full'):
+        skill_rating_sum = 0
+        for skill in ['Bat', 'Bowl', 'Keep', 'Field', 'End', 'Tech', 'Pow' if 'Pow\'' in [str(x) for x in player_df.axes][0] else 'Power']:
+            player_level = player_df[skill]
+            if str(player_level) == 'nan':
+                return 'Unknown'
+            skill_n = FTPUtils.skill_word_to_index(player_level, col_name_len)
+            skill_rating_sum += 500 if skill_n == 0 else 1000 * skill_n
+
+        return player_df['Rating'] - skill_rating_sum
+
+    @staticmethod
+    def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, ind_level=0):
+        global browser
+        check_login()
+
+        if int(teamid) in range(3001, 3019) or int(teamid) in range(3021, 3039) and squad_type == 'domestic_team':
+            squad_type = 'national_team'
+
+        if age_group == 'all':
+            age_group = 0
+        elif age_group == 'seniors':
+            age_group = 1
+        elif age_group == 'youths':
+            age_group = 2
+
+        if squad_type == 'domestic_team':
+            squad_url = 'https://www.fromthepavilion.org/seniors.htm?squadViewId=2&orderBy=&teamId={}&playerType={}'
+        elif squad_type == 'national_team':
+            squad_url = 'https://www.fromthepavilion.org/natsquad.htm?squadViewId=2&orderBy=15&teamId={}&playerType={}'
+
+        squad_url = squad_url.format(teamid, age_group)
+        browser.open(squad_url)
+        page_tmp = str(browser.parsed)
+        page_tmp = page_tmp[page_tmp.index('middle-noright'):]
+        team_name = page_tmp[page_tmp.index('teamId={}">'.format(teamid)):page_tmp.index('teamId={}">'.format(teamid))+30]
+        team_name = team_name.split('>')[1].split('<')[0]
+
+        playerids = []
+        team_players = pd.DataFrame()
+
         try:
-            name = re.findall('<title>From the Pavilion \- [a-zA-Z \']+</title>', page)[0][27:-8]
-        except IndexError:
-            #print('{} name contains strange characters...')
-            return player_id
+            log_event('Downloading players from teamid {}'.format(teamid, squad_url), ind_level=ind_level)
+            team_players = pd.read_html(str(browser.parsed))[0]
+            playerids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+        except ValueError:
+            log_event('Error saving teamid: {}. No dataframe found in url'.format(teamid), ind_level=ind_level)
+            raise ValueError
 
-        print('\t{}: {}'.format(player_id, name))
+        team_players.insert(loc=0, column='TeamID', value=teamid)
+        team_players.insert(loc=2, column='Team', value=team_name)
+        team_players.insert(loc=0, column='PlayerID', value=playerids)
+        team_players['Wage'] = team_players['Wage'].str.replace('\D+', '')
 
-        with open(playernames_file, 'a') as f:
-            f.write('{},{},{}\n'.format(player_id, name, int(time.time())))
+        if squad_type == 'domestic_team':
+            player_nationalities = [x[-2:].replace('=', '') for x in re.findall('regionId=[0-9]+', str(browser.parsed))][-len(playerids):]
+            team_players['Nat'] = player_nationalities
 
-        return name
+            #log_event('Saved {} players to {}'.format(len(playerids), to_file), ind_level=1)
 
-    else:
-        if not player_exists_locally:
-            print('Player {} not found locally... (and download_new is False)'.format(player_id))
-        return player_id
+        if normalize_age:
+            team_players['Age'] = FTPUtils.normalize_age(team_players['Age'])
 
-def get_current_transfers(logtype='full', logfile='default'):
-    global browser, CREDENTIALS
-    if not isinstance(browser, type(None)):
-        browser.open('http://www.fromthepavilion.org/transfer.htm')
-    if isinstance(browser, type(None)) or 'Play the game your way' in str(browser.parsed):
-        logtext = 'User {} session expired. Restarting browser...'.format( CREDENTIALS[0])
-        log_event(logtext, logtype=logtype, logfile=logfile)
-        browser = login(CREDENTIALS)
-        browser.open('http://www.fromthepavilion.org/transfer.htm')
-    try:
-        form = browser.get_form(action='/transfer.htm')
-        browser.submit_form(form)
-        raw_player_info = pd.read_html(str(browser.parsed))[0]
-        print(raw_player_info)
-        player_data = []
-        player_ids = re.findall('playerId=\d+&', str(browser.parsed))
-        player_ids = [t[9:-1] for t in player_ids]
-        for player in range(len(raw_player_info)):
-            playerdic = {}
-            playerdic['ID'] = player_ids[player]
-            for item in raw_player_info.keys():
-                playerdic[item] = raw_player_info[item][player]
-            player_data.append(playerdic)
+        if additional_columns:
+            team_players = PlayerDatabase.add_player_columns(team_players, additional_columns, ind_level=ind_level+1)
 
-        if len(player_data) == 20:
-            logtext = 'Successfully fetched first page of transfer market.'
-            log_event(logtext, logtype=logtype, logfile=logfile)
-            return player_data
+        team_players.drop(columns=[x for x in ['#', 'Unnamed: 18'] if x in team_players.columns], inplace=True)
+
+        if to_file:
+            pd.DataFrame.to_csv(team_players, to_file, index=False, float_format='%.2f')
+
+        return team_players
+
+    @staticmethod
+    def get_player_wage(player_id, page=False, normalize_wage=False):
+        if not page:
+            page = FTPUtils.get_player_page(player_id)
+
+        player_discounted_wage = int(''.join([x for x in re.findall('[0-9]+,[0-9]+ wage' if bool(re.search('[0-9]+,[0-9]+ wage', page)) else '[0-9]+ wage', page)[0] if x.isdigit()]))
+        try:
+            player_discount = float(re.findall('[0-9]+\% discount', page)[0][:-10]) / 100
+        except: #Discount is by .5
+            player_discount = float(re.findall('[0-9]+\.[0-9]+\% discount', page)[0][:-10]) / 100
+        player_real_wage = int(player_discounted_wage / (1-player_discount))
+
+        if normalize_wage:
+            return player_real_wage
         else:
-            logtext = 'Error error downloading current transfers - no players found'
-            log_event(logtext, logtype=logtype, logfile=logfile)
-            return []
-    except:
-        logtext = 'Critical error downloading current transfers - python error'
-        log_event(logtext, logtype=logtype, logfile=logfile)
-        return []
+            return player_discounted_wage
 
-def check_login(browser):
+    @staticmethod
+    def get_player_teamid(player_id, page=False):
+        if not page:
+            page = FTPUtils.get_player_page(player_id)
+
+        team_id = re.findall('teamId=[0-9]+', page)[-2]
+
+        return team_id
+
+    @staticmethod
+    def get_player_nationality(player_id, page=False):
+        if not page:
+            page = FTPUtils.get_player_page(player_id)
+
+        player_nationality_id = re.findall('regionId=[0-9]+', page)[-1][9:]
+
+        return player_nationality_id
+
+    @staticmethod
+    def get_player_skillshifts(player_id, page=False):
+        if not page:
+            page = FTPUtils.get_player_page(player_id)
+
+        skill_names = ['Experience', 'Captaincy', 'Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
+        skills = re.findall('class="skills".{0,200}', page)
+        skills = skills[:2] + skills[-7:]
+        skillshifts = {}
+        for skill_str, skill_name in zip(skills, skill_names):
+            skill_level = None
+            for possible_skill in SKILL_LEVELS:
+                if possible_skill in skill_str:
+                    skill_level = possible_skill
+                    break
+
+            if 'skillup' in skill_str:
+                skillshifts[skill_name] = 1
+            elif 'skilldown' in skill_str:
+                skillshifts[skill_name] = -1
+
+        return skillshifts
+
+    @staticmethod
+    def get_player_summary(player_id, page=False):
+        if not page:
+            page = FTPUtils.get_player_page(player_id)
+
+        summary_names = ['BattingSum', 'BowlingSum', 'KeepingSum', 'AllrounderSum']
+        skills = re.findall('class="skills".{0,200}', page)
+        skills = skills[2:-7]
+        summary_dir = {}
+        for skill_str, summary_name in zip(skills, summary_names):
+            skill_level = None
+            for possible_skill in SKILL_LEVELS:
+                if possible_skill in skill_str:
+                    skill_level = possible_skill
+                    break
+
+            summary_dir[summary_name] = skill_level
+
+        return summary_dir
+
+
+    @staticmethod
+    def get_league_gameids(leagueid, round_n='latest', league_format='league'):
+        global browser
+        check_login()
+
+        if round_n == 'latest':
+            round_n = 1
+
+        if league_format == 'league':
+            browser.open('https://www.fromthepavilion.org/leaguefixtures.htm?lsId={}'.format(leagueid))
+            league_page = str(browser.parsed)
+            league_rounds = int(max([int(r[6:]) for r in re.findall('Round [0-9]+', league_page)]))
+            gameids = [g[7:] for g in re.findall('gameId=[0-9]+', league_page)]
+
+            unique_gameids = []
+            for g in gameids:
+                if g not in unique_gameids:
+                    unique_gameids.append(g)
+
+            games_per_round = len(unique_gameids) // league_rounds
+
+            round_start_ind = games_per_round*(round_n-1)
+            round_end_ind = round_start_ind + games_per_round
+
+            return unique_gameids[round_start_ind:round_end_ind]
+
+        elif league_format == 'knockout':
+            browser.open('https://www.fromthepavilion.org/cupfixtures.htm?cupId={}&currentRound=true'.format(leagueid))
+            fixtures = pd.read_html(str(browser.parsed))[0]
+            for n, roundname in enumerate(fixtures.columns):
+                if roundname[:7] == 'Round {}'.format(round_n):
+                    round_column_name = roundname
+                    break
+
+            games_on_page = re.findall('gameId=.{0,150}', str(browser.parsed))
+            requested_games = []
+            for game in fixtures[round_column_name][::2 ** (round_n - 1)]:
+                team1, team2 = game.split('vs')
+                if bool(re.match('.* \([0-9]+\)', team1)):
+                    team1 = team1[:team1.index(' (')]
+                if bool(re.match('.* \([0-9]+\)', team2)):
+                    team2 = team2[:team2.index(' (')]
+
+                requested_games.append([team1, team2])
+
+            requested_game_ids = []
+            for game in games_on_page:
+                game = game.replace(' &amp; ', ' & ')
+                for team1, team2 in requested_games:
+                    if team1 in game and team2 in game:
+                        requested_game_ids.append(''.join([c for c in game[:game.index('>')] if c.isdigit()]))
+
+            return requested_game_ids
+
+
+    @staticmethod
+    def game_scordcard_table(gameid, ind_level=0):
+        global browser
+        check_login()
+
+        browser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
+        scorecard_tables = pd.read_html(str(browser.parsed))
+        page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
+        home_team_id, away_team_id = page_teamids[21], page_teamids[22]
+        scorecard_tables[-2].iloc[0][1] = home_team_id
+        scorecard_tables[-2].iloc[1][1] = away_team_id
+
+        log_event('Downloaded scorecard for game {}'.format(gameid), ind_level=ind_level)
+
+        return scorecard_tables
+
+    @staticmethod
+    def get_game_teamids(gameid, ind_level=0):
+        check_login()
+
+        browser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
+        page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
+        home_team_id, away_team_id = page_teamids[22], page_teamids[23]
+
+        log_event('Found teams for game {} - {} vs {}'.format(gameid, home_team_id, away_team_id), ind_level=ind_level)
+
+        return (home_team_id, away_team_id)
+
+    @staticmethod
+    def normalize_age(player_ages, reverse=False):
+        min_year = min([int(str(age).split('.')[0]) for age in player_ages])
+        max_year = max([int(str(age).split('.')[0]) for age in player_ages]) + 1
+        year_list = [year for year in range(min_year, max_year)]
+
+        nor_agelist = [] #normalized
+        rea_agelist = [] #real / string / 00
+
+        for year in year_list:
+            for week in range(0, 15):
+                frac_end = str(week / 15).split('.')[1]
+                normalized_age = str(year) + '.' + frac_end[:5]
+
+                if week < 10:
+                    if week == 0:
+                        real_age = str(year) + '.00'
+                    else:
+                        real_age = str(year) + '.0' + str(week)
+                else:
+                    real_age = str(year) + '.' + str(week)
+
+                nor_agelist.append(normalized_age)
+                rea_agelist.append(real_age)
+
+        new_ages = []
+        for p_age in player_ages:
+            if reverse:
+                try:
+                    age_ind = nor_agelist.index(str(p_age).split('.')[0] + '.' + str(p_age).split('.')[1][:5])
+                    new_age = rea_agelist[age_ind]
+                    new_ages.append(new_age)
+                except ValueError:
+                    new_ages.append('AgeError:Unexpected')
+            else:
+                if str(p_age).split('.')[1] == '1':
+                    p_age = str(p_age).split('.')[0] + '.10'
+                if str(p_age).split('.')[1] == '0':
+                    p_age = str(p_age).split('.')[0] + '.00'
+                new_ages.append(nor_agelist[rea_agelist.index(str(p_age))])
+
+        return [str(age) if reverse else float(age) for age in new_ages]
+
+
+class PresentData():
+    @staticmethod
+    def youth_pull_league_round_overview(leagueid, normalize_age=False, max_weeks=0, league_format='league', round_n='latest', ind_level=0):
+        requested_games = FTPUtils.get_league_gameids(leagueid, league_format=league_format, round_n=round_n)
+        browser.open('https://www.fromthepavilion.org/commentary.htm?gameId={}'.format(requested_games[0]))
+
+        if 'Membership Features' in str(browser.parsed):
+            games_finished = False
+        else:
+            games_finished = True
+
+        log_event('League {} - Round {}: {}'.format(leagueid, round_n, 'Played' if games_finished else 'Not Played'), ind_level=ind_level)
+
+        round_teams = []
+        if not games_finished:
+            for game in [FTPUtils.get_game_teamids(game) for game in requested_games]:
+                round_teams.append(game[0]) #home
+                round_teams.append(game[1]) #away
+        else:
+            scorecard_tables = [FTPUtils.game_scordcard_table(gameid) for gameid in requested_games]
+            for game in [g[-2] for g in scorecard_tables]:
+                round_teams.append(game[1][0]) #home
+                round_teams.append(game[1][1]) #away
+
+        team_youthsquads = pd.concat([FTPUtils.get_team_players(teamid, age_group='youths', normalize_age=True) for teamid in round_teams])
+        new_players = team_youthsquads[team_youthsquads['Age'] <= 16 + (max_weeks/15)]
+        new_players['Age'] = [str(x) for x in new_players['Age']]
+        new_players.insert(3, 'Initial', [playername.split(' ', 1)[0][0] + '. ' + playername.split(' ', 1)[1] for playername in new_players['Player']])
+
+        if games_finished:
+            players = []
+            players_in_round = []
+            for player_initial in new_players['Initial']:
+                player = new_players.iloc[[str(x) for x in new_players['Initial']].index(player_initial)]
+                player['Batting'] = None
+                player['Bowling'] = None
+                player_bat, player_bowl = None, None
+
+                for game_scorecard in scorecard_tables:
+                    home_batting, home_bowling = game_scorecard[1], game_scorecard[4]
+                    away_batting, away_bowling = game_scorecard[3], game_scorecard[2]
+
+                    home_team_name, away_team_name = home_batting.columns[0], away_batting.columns[0]
+                    home_lineup = [str(x).replace(' (c)', '').replace(' (wk)', '') for x in home_batting[home_team_name] if '.' in x]
+                    away_lineup = [str(x).replace(' (c)', '').replace(' (wk)', '') for x in away_batting[away_team_name] if '.' in x]
+
+                    home_lineup_initials = [playername.split(' ', 1)[0][0] + '. ' + playername.split(' ', 1)[1] for playername in home_lineup]
+                    away_lineup_initials = [playername.split(' ', 1)[0][0] + '. ' + playername.split(' ', 1)[1] for playername in away_lineup]
+
+                    players_in_round.append(home_lineup)
+                    players_in_round.append(away_lineup)
+
+
+                    if player_initial in [str(x) for x in home_lineup_initials]:
+                        player_bat = home_batting.iloc[[str(x.replace(' (c)', '').replace(' (wk)', '')) for x in home_batting[home_team_name]].index(player_initial)]
+                        if player_bowl is None:
+                            player_bowl = '-'
+
+                        print('Player {} found in {}'.format(player_initial, home_team_name + ' - ' + away_team_name))
+                    elif player_initial in [str(x) for x in away_lineup_initials]:
+                        player_bat = away_batting.iloc[[str(x).replace(' (c)', '').replace(' (wk)', '') for x in away_batting[away_team_name]].index(player_initial)]
+                        if player_bowl is None:
+                            player_bowl = '-'
+
+                        print('Player {} found in {}'.format(player_initial, home_team_name + ' - ' + away_team_name))
+
+                    home_bowling['Name'] = [str(player.split('(')[0][:-1]) for player in home_bowling['Bowling']]
+                    away_bowling['Name'] = [str(player.split('(')[0][:-1]) for player in away_bowling['Bowling']]
+
+                    if player_initial in [str(x) for x in home_bowling['Name']]:
+                        player_bowl = home_bowling.iloc[[str(x) for x in home_bowling['Name']].index(player_initial)]
+                        print('Player {} found in {}'.format(player_initial, home_team_name + ' - ' + away_team_name))
+
+                    if player_initial in [str(x) for x in away_bowling['Name']]:
+                        player_bowl = away_bowling.iloc[[str(x) for x in away_bowling['Name']].index(player_initial)]
+                        print('Player {} found in {}'.format(player_initial, home_team_name + ' - ' + away_team_name))
+
+                    if player_bat is not None and player_bowl is not None:
+                        break
+
+                if player_bat is not None:
+                    player['Batting'] = player_bat['Runs']
+                elif player_bat != '-':
+                    player['Batting'] = 'DNP'
+                if isinstance(player_bowl, pd.Series):
+                    player['Bowling'] = str(player_bowl['Wickets']) + '-' + str(player_bowl['Runs'])
+                elif player_bowl is None:
+                    player['Bowling'] = 'DNP'
+
+                if isinstance(player['Batting'], type(None)):
+                    player['Batting'] = '-'
+                if isinstance(player['Batting'], float):
+                    player['Batting'] = '-'
+                if isinstance(player['Bowling'], type(None)):
+                    player['Bowling'] = '-'
+
+                players.append([player, player_bat, player_bowl])
+
+            new_player_overview = pd.DataFrame([player[0] for player in players])
+
+            new_players = new_player_overview
+        else:
+            log_event('Requested round (League {} - Round {}) has not been played, so no stats could be collected. {} players found.'.format(leagueid, round_n, len(new_players)), ind_level=ind_level)
+
+        try:
+            new_players.sort_values('Rating', ascending=False, inplace=True, ignore_index=True)
+            del new_players['Fatg']
+            del new_players['Initial']
+            del new_players['BT']
+            # del new_player_overview['Age']
+            # del new_player_overview['Nat']
+
+            if not normalize_age:
+                new_players['Age'] = FTPUtils.normalize_age(new_players['Age'], reverse=True)
+
+            new_players['Nat'] = [FTPUtils.nationality_id_to_name_str(natid) for natid in new_players['Nat']]
+
+        except KeyError:
+            log_event('No new players found in league {}'.format(leagueid), ind_level=ind_level)
+
+        return new_players
+
+    @staticmethod
+    def database_rating_increase_scatter(db_name, group1_db_entry=[46, 2], group2_db_entry=[46, 3]):
+        fig, ax = plt.subplots()
+        db_config = PlayerDatabase.load_config_file(db_name)
+        db_team_ids = db_config[1]['teamids']
+        w2p = []
+        w1p = []
+        for region_id in db_team_ids:
+            team_w1p = PlayerDatabase.load_entry(db_name, group1_db_entry[0], group1_db_entry[1], region_id, normalize_age=True)  # pd.concat(w13players)
+            team_w2p = PlayerDatabase.load_entry(db_name, group2_db_entry[0], group2_db_entry[1], region_id, normalize_age=True)  # pd.concat(w10players)
+            x1, x2 = PlayerDatabase.match_pg_ids(team_w1p, team_w2p, returnsortcolumn='Ratdif')
+            w1p.append(x1)
+            w2p.append(x2)
+
+        allplayers = pd.concat(w2p, ignore_index=True).T.drop_duplicates().T
+        if 'Training' in allplayers.columns:
+            allplayers = allplayers[allplayers['Training'] != 'Hidden']
+        else:
+            allplayers['Training'] = 'Not in table'
+        unique_teams = list(set(allplayers['TeamID']))
+        if len(unique_teams) < 10:
+            colors = [plt.get_cmap('tab10').colors[n % 10] for n in range(len(unique_teams))]
+        else:
+            colors = [plt.get_cmap('tab20').colors[n % 20] for n in range(len(unique_teams))]
+        scatter_colors = [colors[unique_teams.index(team)] for team in allplayers['TeamID']]
+        legend_color_rects = [matplotlib.patches.Rectangle((0, 0),1,1,fc=color) for color in colors]
+        ax.scatter(allplayers['Age'], allplayers['Ratdif'], c=scatter_colors)
+        ax.legend(legend_color_rects, unique_teams)
+        labeldata = []
+        for pn in range(len(allplayers['PlayerID'])):
+            age = FTPUtils.normalize_age([allplayers.iloc[pn]['Age']], True)[0]
+            p_data = [allplayers.iloc[pn]['Player'], allplayers.iloc[pn]['PlayerID'], allplayers.iloc[pn]['Team'], allplayers.iloc[pn]['TeamID'], age, allplayers.iloc[pn]['Ratdif']]
+            if 'Training' in allplayers.columns:
+                p_data.append(allplayers.iloc[pn]['Training'])
+            else:
+                p_data.append('Not in table')
+            labeldata.append(p_data)
+
+        labels = [
+            'Player: {} ({})\nTeam: {} ({})\nAge: {}\nRatdif: +{}\nTraining: {}'.format(player[0], player[1], player[2], player[3],
+                                                                          player[4], player[5], player[6]) for player in labeldata]
+        cursor = mplcursors.cursor(ax, hover=True)
+        cursor.connect("add", lambda sel: sel.annotation.set_text(labels[sel.target.index]))
+        ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(20, integer=True))
+        plt.grid(axis='x', linestyle='--', c='k', linewidth=1, alpha=0.4)
+        plt.ylim([0, max(allplayers['Ratdif']) + 100])
+        plt.show()
+
+    @staticmethod
+    def team_increase_quiver(db_name, group1_entry, group2_entry):
+        db_config = PlayerDatabase.load_config_file(db_name)
+        db_team_ids = db_config[1]['teamids']
+        group1_p = []
+        group2_p = []
+        g1s, g1w = group2_entry
+        g2s, g2w = group2_entry
+        for team_id in db_team_ids:
+            group1_team = PlayerDatabase.load_entry(db_name, g1s, g1w, team_id, normalize_age=True)  # pd.concat(w13players)
+            group2_team = PlayerDatabase.load_entry(db_name, g2s, g2w, team_id, normalize_age=True)  # pd.concat(w10players)
+            x1, x2 = PlayerDatabase.match_pg_ids(group1_team, group2_team, returnsortcolumn='Ratdif')
+            group1_p.append(x1)
+            group2_p.append(x2)
+
+        average_a, average_r, average_rd = [], [], []
+
+        for region in group2_p:
+            region_players = np.array([len(region) for player in range(len(region))])
+            average_a.append(sum(region['Age']) / len(region))
+            average_r.append(sum(region['Rating']) / len(region))
+            average_rd.append(sum(region['Ratdif']) / len(region))
+
+        age_range = max(average_a) - min(average_a)
+        rating_range = max(average_r) - min(average_r)
+        aspect_ratio = rating_range / age_range
+
+        fig, ax = plt.subplots()
+        qp = ax.quiver(average_a, average_r, average_rd, [aspect_ratio for x in range(len(average_a))], pivot='tail', color=[FTPUtils.nationality_id_to_rgba_color(natid) for natid in range(1, 19)])
+        for n, data in enumerate(zip(average_a, average_r)):
+            age, wage = data[0], data[1]
+            ax.quiverkey(qp, age, wage, 1, color=FTPUtils.nationality_id_to_rgba_color(n+1), label='{} ({})'.format(FTPUtils.nationality_id_to_name_str((n+1), full_name=True), len(group2_p[n])), labelpos='S', coordinates='data')
+
+        ax.set_title('{} Rating / Age of Long Term Players'.format(db_name))
+        ax.set_xlabel('Average Age')
+        ax.set_ylabel('Average Rating')
+        fig.show()
+
+
+def log_event(logtext, logtype='full', logfile='default', ind_level = 0):
+    current_time = datetime.datetime.now()
+    if type(logfile) == str:
+        logfile = [logfile]
+
+    for logf in logfile:
+        if logf == 'default':
+            logf = 'ftp_archiver_output_history.log'
+        if logtype in ['full', 'console']:
+            print('[{}] '.format(current_time.strftime('%d/%m/%Y-%H:%M:%S')) + '\t' * ind_level + logtext)
+        if logtype in ['full', 'file']:
+            with open(logf, 'a') as f:
+                f.write('[{}] '.format(current_time.strftime('%d/%m/%Y-%H:%M:%S')) + logtext + '\n')
+
+        logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
+
+
+def check_login():
+    global browser, CREDENTIALS
     if isinstance(browser, type(None)):
-        return False
-
-    browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-    if 'Player the game your way' in str(browser.parsed):
-        return False
-    elif 'Bottybotbots' in str(browser.parsed):
+        browser = login(CREDENTIALS)
         return True
+    else:
+        last_page_load = datetime.datetime.strptime(str(browser.response.headers['Date'])[:-4]+'+0000', '%a, %d %b %Y %H:%M:%S%z')
+        if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) > datetime.timedelta(minutes=10):
+            log_event('Browser timed out...')
+            browser = login(CREDENTIALS)
+            browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
+            return True
+
+    return True
+
 
 def login(credentials, logtype='full', logfile='default'):
+    global browser
     browser = RoboBrowser(history=True)
     browser.open('http://www.fromthepavilion.org/')
     form = browser.get_form(action='securityCheck.htm')
@@ -375,7 +963,7 @@ def login(credentials, logtype='full', logfile='default'):
     form['j_password'] = credentials[1]
 
     browser.submit_form(form)
-    if check_login(browser):
+    if check_login():
         logtext = 'Successfully logged in as user {}.'.format(CREDENTIALS[0])
         log_event(logtext, logtype=logtype, logfile=logfile)
         return browser
@@ -384,224 +972,32 @@ def login(credentials, logtype='full', logfile='default'):
         log_event(logtext, logtype=logtype, logfile=logfile)
         return None
 
-def get_season_day(dateobj, season_start = datetime.datetime(2019, 4, 3)): #season 43
-    return (dateobj - season_start).days
-
-def sale_day_graph(players, time_start = datetime.datetime(2020, 4, 3), time_end = datetime.datetime.now()): #season 43
-    fig = plt.figure()
-
-    players = [p for p in players if time_end > p.stats['Deadline'] > time_start]
-    day = []
-    day_cum = {}
-    for player in players:
-        day_of_season = get_season_day(player.stats['Deadline'], season_start=time_start)
-
-        if time_start < player.stats['Deadline'] < time_end and 'Price' in [x for x in player.stats.keys()]:
-            day.append(day_of_season)
-            if day_of_season in [x for x in day_cum.keys()]:
-                day_cum[day_of_season] += int(player.stats['Price'])
-            else:
-                day_cum[day_of_season] = int(player.stats['Price'])
-
-
-    day_range = max(day) + 1
-    daynums = [[0, 0] for day in range(day_range)]
-    offset = min([x for x in day_cum.keys()])
-
-    for d in range(day_range):
-        daynums[d][0] = day.count(d)
-        if daynums[d][0] == 0 or d + offset not in [x for x in day_cum.keys()]:
-            daynums[d][1] = 0
-        else:
-            daynums[d][1] = int(day_cum[d + offset]) / daynums[d][0]
-
-
-    print(len([x for x in range(max(day)+1)]), len([x[0] for x in daynums]))
-
-    plt.bar([x for x in range(max(day)+1)][1:], [x[0] for x in daynums][1:])
-    plt.title('Season 44 sales by day')
-    plt.xticks([x+1 for x in range(0, day_range, 7) if x % 7 == 0], [(x//7)-1 for x in range(7, day_range+7, 7)])
-    plt.xlabel('Week (since Day 1, Week 0, Season 44)')
-    plt.ylabel('Total sales')
-    plt.show()
-
-def player_sales_by_age_table(players, start_time=datetime.datetime(2020, 4, 6), end_time = datetime.datetime.now()):
-    weeks = int(abs((end_time - start_time).total_seconds()) / (60 * 60 * 24 * 7)) + 1
-    table = {str(a) : {str(w) : 0 for w in range(weeks+1)} for a in range(16, 33)}
-
-    for playerinstance in players:
-        week = str(int(get_season_day(playerinstance.stats['Deadline'], season_start=start_time) // 7))
-        age = str(playerinstance.stats['Age'])
-        if age in table.keys():
-            if week in table[age].keys():
-                table[age][week] += int(playerinstance.stats['Price'])
-            else:
-                print(age, week)
-        else:
-            print(age, week)
-    return table
-
-def save_team_weekly_ratings(teamID, database = 'teamratings/'):
-    global browser
-    browser.open('https://www.fromthepavilion.org/seniors.htm?teamId={}'.format(teamID))
-    page = str(browser.parsed)
-
-    print(teamID)
-    timestr = re.findall('Week [0-9]+, Season [0-9]+', page)[0]
-    week, season = timestr.split(',')[0].split(' ')[-1], timestr.split(',')[1].split(' ')[-1]
-    players = set([x[9:] for x in re.findall('playerId=[0-9]+', page)])
-    ratings = [x.split(' ')[0] for x in re.findall('[0-9]+,[0-9]+ rating', page)]
-
-    if not os.path.exists(database + str(teamID) + '/'):
-        os.mkdir(database + str(teamID) + '/')
-    if not os.path.exists(database + str(teamID) + '/s{}/'.format(season)):
-        os.mkdir(database + str(teamID) + '/s{}/'.format(season))
-
-    with open(database + str(teamID) + '/s{}/w{}.txt'.format(season, week), 'w') as f:
-        f.write(str(int(time.time())) + '\n')
-        for n, p in enumerate(players):
-            f.write('{},{}\n'.format(p, ''.join([x for x in ratings[n] if x.isdigit()])))
-
-def rating_over_time(players):
-    players = [p for p in players if p.stats['Deadline'] > datetime.datetime(2020, 1, 6)]
-    unique_player_dic = {}
-    for p in players:
-        if p.ID in unique_player_dic.keys():
-            unique_player_dic[p.ID].append(p)
-        else:
-            unique_player_dic[p.ID] = [p]
-
-    playergroups = []
-
-    for pid in unique_player_dic.keys():
-        if len(unique_player_dic[pid]) >= 2:
-            playergroups.append(unique_player_dic[pid])
-
-    fig, ax = plt.subplots()
-    ax.set_title('Player ratings over time')
-    ax.set_xlabel('Date (FTP S44)')
-    ax.set_ylabel('Rating')
-    ax.xaxis.set_major_locator(matplotlib.dates.MonthLocator())
-    ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%B'))
-    #ax.xaxis.set_minor_locator(matplotlib.dates.DayLocator(interval=14))
-    #ax.xaxis.set_minor_formatter(matplotlib.dates.DateFormatter('%d'))
-    for player in playergroups:
-        dates = [pinstance.stats['Deadline'] for pinstance in player]
-        dates = matplotlib.dates.date2num(dates)
-        ratings = [int(pinstance.stats['Rating']) for pinstance in player]
-
-        ax.plot(dates, ratings)
-    fig.autofmt_xdate()
-
-def age_rating_increase(allplayers, out_dir='temp/', season_start = datetime.datetime(2020, 1, 6), histtype='standard', highlighted_countries=False):
-    for a in range(16, 33):
-        players = [p for p in allplayers if int(p.stats['Age']) == a and p.stats['Deadline'] > season_start]
-        #print(len(players))
-        unique_player_dic = {}
-        for p in players:
-            if p.ID in unique_player_dic.keys():
-                unique_player_dic[p.ID].append(p)
-            else:
-                unique_player_dic[p.ID] = [p]
-
-        playergroups = []
-
-        for pid in unique_player_dic.keys():
-            if len(unique_player_dic[pid]) >= 2:
-                playergroups.append(unique_player_dic[pid])
-
-        added_ratings = []
-        added_ratings_by_country = {}
-        youth_training, senior_training = 'Monday', 'Wednesday'
-
-        for group in playergroups:
-            for n, player in enumerate(sorted([x for x in group], key=lambda x: x.stats['Deadline'])):
-                if (n + 1) < len(group):
-                    start_date = player.stats['Deadline']
-                    end_date = group[n+1].stats['Deadline']
-
-                    weekday_counts = {}
-                    for i in range((end_date - start_date).days):
-                        day = calendar.day_name[(start_date + datetime.timedelta(days=i + 1)).weekday()]
-                        weekday_counts[day] = weekday_counts[day] + 1 if day in weekday_counts else 1
-
-                    try:
-                        training_weeks = weekday_counts[youth_training if a <= 21 else senior_training]
-                    except KeyError:
-                        training_weeks = 0
-
-                    if training_weeks >= 1:
-                        ratingchange = int(group[n + 1].stats['Rating']) - int(player.stats['Rating'])
-                        average_change = ratingchange / training_weeks
-                        if ratingchange/training_weeks > 500 and training_weeks == 1:
-                            print(p.ID, a, average_change, group[n+1].stats['Deadline'], player.stats['Deadline'])
-                        added_ratings.append(average_change)
-                        if highlighted_countries:
-                            if player.stats['Nat.'] in highlighted_countries or highlighted_countries == 'all':
-                                if player.stats['Nat.'] in added_ratings_by_country.keys():
-                                    added_ratings_by_country[player.stats['Nat.']].append(average_change)
-                                else:
-                                    added_ratings_by_country[player.stats['Nat.']] = [average_change]
-                            else:
-                                if 'Other' in added_ratings_by_country.keys():
-                                    added_ratings_by_country['Other'].append(average_change)
-                                else:
-                                    added_ratings_by_country['Other'] = [average_change]
-
-
-        if histtype == 'standard':
-            plt.hist(added_ratings, bins=100, range=(-200, 700))
-
-        if histtype == 'stacked':
-            histcolors = ['tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
-            selectedcolors = histcolors[:len(highlighted_countries)] + ['tab:blue']
-            selecteddata = [added_ratings_by_country[c] if c in added_ratings_by_country.keys() else [] for c in sorted(highlighted_countries)] + [added_ratings_by_country['Other']]
-            plt.hist(selecteddata, stacked=True, bins=100, range=(-200, 700), color=selectedcolors)
-            plt.legend(handles = [mpatches.Patch(color = selectedcolors[n], label = c) for n, c in enumerate(sorted(highlighted_countries))])
-
-
-        plt.xlabel('Rating increase per week')
-        plt.ylabel('Points of data')
-        plt.title('Rating increase per week (age = {})'.format(a))
-        axes = plt.gca()
-        axes.set_ylim([0, 40])
-
-        added_ratings = np.array(added_ratings)
-        p90 = np.percentile(added_ratings, 90)
-        p50 = np.percentile(added_ratings, 50)
-        p50l = plt.axvline(p50, color='b', linestyle='dashed', linewidth=1)
-        p90l = plt.axvline(p90, color='r', linestyle='dashed', linewidth=1)
-
-        percentile_legend = plt.legend([p50l, p90l], ['50th percentile', '90th percentile'], loc=1)
-        plt.gca().add_artist(percentile_legend)
-
-        if histtype == 'stacked':
-            country_legend = plt.legend(handles=[mpatches.Patch(color=selectedcolors[n], label=c) for n, c in enumerate(sorted(highlighted_countries) + ['Other'])], loc=2)
-            plt.gca().add_artist(country_legend)
-
-        plt.savefig(out_dir + '{}y.png'.format(a))
-        plt.close()
-
-    images = []
-    for filename in os.listdir(out_dir):
-        if '.png' in filename:
-            images.append(imageio.imread(out_dir + filename))
-    imageio.mimsave(out_dir + 'timeline.gif', images, duration=1)
-
-def migrate_ages(playerinstances):
-    pass
-
 if __name__ == '__main__':
-    browser = login(CREDENTIALS)
-    #allplayers = load_players('all', 'all', database_dir='players-old/')
-    #recentplayers = load_players('all', 'recent', database_dir='players-old/')
+    #w1players = PlayerDatabase.load_entry('teams-weekly', '46', '1', '6021', normalize_age=True)#pd.concat(w13players)
+    #w2players = PlayerDatabase.load_entry('teams-weekly', '46', '2', '6021', normalize_age=True)#pd.concat(w10players)
 
-    #age_rating_increase(allplayers)
-    #rating_over_time(allplayers)
 
-    #with open('teamratings/trainingsurvey-1', 'r') as f:
-    #    for line in [x[:-1] for x in f.readlines()]:
-    #        print(line)
-    #        save_team_weekly_ratings(line)
-    #players = load_players(['2236846'], instancetimes='all')
-    #rating_over_time(players)
+    #w1, w2 = PlayerDatabase.match_pg_ids(w13players, w14players, returnsortcolumn='Ratdif')
+
+    #x = x = PresentData.youth_pull_league_round(95147)
+    #print(x.to_markdown(index=[x+1 for x in range(len(x))], floatfmt='.2f'))
+
+    #pyc_round_4 = PresentData.youth_pull_league_round_overview(863, round_n=4, league_format='knockout')
+    #pyc_round_4_markdown_text = pyc_round_4.to_markdown(index=[x+1 for x in range(len(pyc_round_4))], floatfmt='.2f')
+
+    #pgt_round_5 = PresentData.youth_pull_league_round_overview(95147, round_n=5, league_format='league')
+    #pgt_round_5_markdown_text = pgt_round_5.to_markdown(index=[x + 1 for x in range(len(pgt_round_5))], floatfmt='.2f')
+
+    #week_pak_recruits = pd.concat(pyc_round_2, pgt_round_3)
+    #unique_pak_recruits = week_pak_recruits.drop_duplicates(['PlayerID'])
+
+    #print(pyc_round_2_markdown_text)
+    #PlayerDatabase.download_database('u21-national-squads')
+    #player_databases = ['market-archive', 'PGT', 'senior-national-squads', 'teams-weekly', 'u16-weekly', 'u21-national-squads', 'nzl-t20-33', 'nzl-od-34', 'sa-od-42']
+    #PlayerDatabase.watch_database_list(player_databases)
+
+    #p = PlayerDatabase.player_search(search_settings={'skill1': '8', 'fromSkill1': '9', 'skill2': '7', 'fromSkill2': '7', 'fromAge': '20', 'toAge': '20', 'toAgeWeeks': '11', 'skill3': '1', 'fromSkill3': '5'}, search_type='nat_search', extra_columns=['Wage', 'Nat', 'NatSquad', 'SpareRat'], normalize_age=False)
+    #p19 = PlayerDatabase.player_search(search_settings={'skill1': '8', 'fromSkill1': '9', 'skill2': '7', 'fromSkill2': '7', 'toAge': '19', 'skill3': '1', 'fromSkill3': '5'}, search_type='nat_search', extra_columns=['Wage', 'Nat', 'NatSquad', 'SpareRat'], normalize_age=False)
+    #allp = pd.concat([p, p19])
+    #allp.sort_values('Wage', inplace=True, ascending=False)
+    pass
