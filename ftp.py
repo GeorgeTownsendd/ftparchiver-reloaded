@@ -10,6 +10,7 @@ import itertools
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import seaborn as sns; sns.set_theme(color_codes=True)
 import mplcursors
 
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
@@ -880,6 +881,8 @@ class PresentData():
         plt.grid(axis='x', linestyle='--', c='k', linewidth=1, alpha=0.4)
         plt.ylim([0, max(allplayers['Ratdif']) + 100])
         plt.show()
+
+        sns.lmplot(x='Age', y='Ratdif', data=allplayers, hue='TeamID')
 
     @staticmethod
     def team_increase_quiver(db_name, group1_entry, group2_entry):
