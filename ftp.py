@@ -284,6 +284,12 @@ class PlayerDatabase():
                     else:
                         player_data.append(False)
 
+                elif column_name == 'Touring':
+                    if 'This player is on tour with the national team' in player_page:
+                        player_data.append(True)
+                    else:
+                        player_data.append(False)
+
                 elif column_name == 'TeamID':
                     player_teamid = FTPUtils.get_player_teamid(player_id, player_page)
                     player_data.append(player_teamid)
@@ -727,9 +733,15 @@ class FTPUtils():
 
 class PresentData():
     @staticmethod
-    def youth_pull_league_round_overview(leagueid, normalize_age=False, max_weeks=0, league_format='league', round_n='latest', ind_level=0):
+    def youth_pull_league_round_overview(leagueid, normalize_age=False, league_format='league', round_n='latest', ind_level=0, weeks_since_game='default'):
         requested_games = FTPUtils.get_league_gameids(leagueid, league_format=league_format, round_n=round_n)
         browser.open('https://www.fromthepavilion.org/commentary.htm?gameId={}'.format(requested_games[0]))
+        if weeks_since_game == 'default':
+            player_match_age = FTPUtils.normalize_age(['16.00'])[0]
+        else:
+            valid_age = 16 + (weeks_since_game / 15)
+            valid_age = '16.' + str(valid_age).split('.')[1][:5]
+            player_match_age = float(valid_age)
 
         if 'Membership Features' in str(browser.parsed):
             games_finished = False
@@ -750,7 +762,7 @@ class PresentData():
                 round_teams.append(game[1][1]) #away
 
         team_youthsquads = pd.concat([FTPUtils.get_team_players(teamid, age_group='youths', normalize_age=True) for teamid in round_teams])
-        new_players = team_youthsquads[team_youthsquads['Age'] <= 16 + (max_weeks/15)]
+        new_players = team_youthsquads[team_youthsquads['Age'] == float(player_match_age)]
         new_players['Age'] = [str(x) for x in new_players['Age']]
         new_players.insert(3, 'Initial', [playername.split(' ', 1)[0][0] + '. ' + playername.split(' ', 1)[1] for playername in new_players['Player']])
 
@@ -843,7 +855,7 @@ class PresentData():
             new_players['Nat'] = [FTPUtils.nationality_id_to_name_str(natid) for natid in new_players['Nat']]
 
         except KeyError:
-            log_event('No new players found in league {}'.format(leagueid), ind_level=ind_level)
+            log_event('No new players found in round ({}) in league {}'.format(round_n, leagueid), ind_level=ind_level)
 
         return new_players
 
@@ -998,11 +1010,15 @@ if __name__ == '__main__':
     #x = x = PresentData.youth_pull_league_round(95147)
     #print(x.to_markdown(index=[x+1 for x in range(len(x))], floatfmt='.2f'))
 
-    #pyc_round_4 = PresentData.youth_pull_league_round_overview(863, round_n=4, league_format='knockout')
-    #pyc_round_4_markdown_text = pyc_round_4.to_markdown(index=[x+1 for x in range(len(pyc_round_4))], floatfmt='.2f')
+    #pyc_round_5 = PresentData.youth_pull_league_round_overview(863, round_n=5, league_format='knockout')
+    #pyc_round_5_markdown_text = pyc_round_5.to_markdown(index=[x+1 for x in range(len(pyc_round_5))], floatfmt='.2f')
 
-    #pgt_round_5 = PresentData.youth_pull_league_round_overview(95147, round_n=5, league_format='league')
-    #pgt_round_5_markdown_text = pgt_round_5.to_markdown(index=[x + 1 for x in range(len(pgt_round_5))], floatfmt='.2f')
+    #pgt_round_6 = PresentData.youth_pull_league_round_overview(95147, round_n=7, league_format='league', max_weeks=3)
+    #pgt_round_6_markdown_text = pgt_round_6.to_markdown(index=[x + 1 for x in range(len(pgt_round_6))], floatfmt='.2f')
+
+    round_dic = {}
+    for round in [7, 8, 9]:
+        round_dic[round] = PresentData.youth_pull_league_round_overview(95147, round_n=round, league_format='league', weeks_since_game=10-round)
 
     #week_pak_recruits = pd.concat(pyc_round_2, pgt_round_3)
     #unique_pak_recruits = week_pak_recruits.drop_duplicates(['PlayerID'])
