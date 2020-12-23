@@ -990,16 +990,20 @@ def login(credentials, logtype='full', logfile='default'):
         log_event(logtext, logtype=logtype, logfile=logfile)
         return None
 
-def catagorise_training(db_time_pairs):
+def catagorise_training(db_time_pairs, min_data_include=1):
     training_data_collection = []
     for dbtpair in db_time_pairs:
         training_data_week = pd.concat(PresentData.database_rating_increase_scatter(dbtpair[0], dbtpair[1], dbtpair[2], True))
+        training_data_week = training_data_week[(training_data_week['Training'] != 'Rest') & (training_data_week['Ratdif'] > 0)]
         non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
-        if dbtpair[2][1] - dbtpair[1][1] > 1:
-            non_hidden_training['Ratdif'] = np.divide(non_hidden_training['Ratdif'], dbtpair[2][1] - dbtpair[1][1])
+        weeks_of_training = dbtpair[2][1] - dbtpair[1][1]
+        non_hidden_training['TrainingWeeks'] = weeks_of_training
+        if weeks_of_training > 1:
+            non_hidden_training['Ratdif'] = np.divide(non_hidden_training['Ratdif'], weeks_of_training)
         training_data_collection.append(non_hidden_training)
 
     all_training_data = pd.concat(training_data_collection)
+    all_training_data.drop_duplicates(['PlayerID', 'Rating'], inplace=True)
     training_type_dict = {}
     for trainingtype in ['Batting', 'Bowling', 'Keeping', 'Keeper-Batsman', 'All-rounder', 'Fielding', 'Fitness', 'Batting Technique', 'Bowling Technique', 'Strength', 'Rest']:
         training_type_data = all_training_data[all_training_data['Training'] == trainingtype]
@@ -1007,7 +1011,10 @@ def catagorise_training(db_time_pairs):
         training_type_age_dict = {}
         for age in range(int(min(np.append(training_type_data.Age, int(max(np.append(training_type_data.Age, 16)))))), int(max(np.append(training_type_data.Age, 16)))):
             data = training_type_data[training_type_data['Age'] == age]
-            if len(data) > 0:
+            if len(data) >= min_data_include:
+                data = data[np.abs(data.Ratdif - data.Ratdif.mean()) <= (3 * training_data_week.Ratdif.std())]
+                # keep only values within +- 3 std of ratdif
+
                 training_type_age_dict[age] = data
 
         training_type_dict[trainingtype] = training_type_age_dict
@@ -1018,23 +1025,46 @@ if __name__ == '__main__':
     db_pairs = [['u21-national-squads', (46, 6), (46, 7)],
                 ['u21-national-squads', (46, 5), (46, 6)],
                 ['u21-national-squads', (46, 2), (46, 3)],
+                ['senior-national-squads', (46, 5), (46, 7)],
                 ['teams-weekly', (46, 2), (46, 3)],
                 ['teams-weekly', (46, 3), (46, 5)],
                 ['teams-weekly', (46, 5), (46, 7)],
                 ['nzl-od-34', (46, 5), (46, 7)],
                 ['nzl-t20-33', (46, 5), (46, 7)],
-                ['sa-od-42', (46, 5), (46, 7)]]
-    x = catagorise_training(db_pairs)
+                ['sa-od-42', (46, 5), (46, 7)],
+                ['PGT', (46, 2), (46, 5)],
+                ['PGT', (46, 5), (46, 7)]]
+
+    x = catagorise_training(db_pairs, min_data_include=10)
 
     for k in x.keys():
         print(k, len(pd.concat(x[k])) if len(x[k]) != 0 else 0)
 
     training_names = x.keys()
+    training_names = ['Fielding', 'Batting', 'Bowling']#, 'Batting', 'Bowling']
 
     for training in training_names:
-        plt.plot([t for t in x[training].keys()], [sum(x[training][age]['Ratdif']) / len(x[training][age]) for age in x[training].keys()])
+        training_ages = [t for t in x[training].keys()]
+        training_average_increase = np.empty(len(x[training]))
+        training_average_increase_max = np.empty(len(x[training]))
+        training_average_increase_min = np.empty(len(x[training]))
+
+        for n, age in enumerate(x[training].keys()):
+            avg_increase = sum(x[training][age]['Ratdif']) / len(x[training][age]['Ratdif'])
+
+            training_average_increase[n] = avg_increase
+            training_average_increase_min[n] = min(x[training][age]['Ratdif'])
+            training_average_increase_max[n] = max(x[training][age]['Ratdif'])
+
+        plt.plot(training_ages, training_average_increase)
+
+        trng_data_std = training_average_increase.std()
+        plt.fill_between(training_ages, training_average_increase_max, training_average_increase_min, alpha=0.5)
+
 
     plt.legend(training_names)
+    plt.axis([16, 33, 0, 500])
+    plt.xticks(range(16, 33), range(16, 33))
     #league_id = 97290
     #current_round = 7
     #round_dic = {}
