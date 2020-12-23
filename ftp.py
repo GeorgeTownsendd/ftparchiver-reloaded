@@ -12,6 +12,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
 import mplcursors
+from math import floor
 
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
 SKILL_LEVELS = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
@@ -860,8 +861,7 @@ class PresentData():
         return new_players
 
     @staticmethod
-    def database_rating_increase_scatter(db_name, group1_db_entry=[46, 2], group2_db_entry=[46, 3]):
-        fig, ax = plt.subplots()
+    def database_rating_increase_scatter(db_name, group1_db_entry=[46, 2], group2_db_entry=[46, 3], return_w2=False, include_hidden_training=False):
         db_config = PlayerDatabase.load_config_file(db_name)
         db_team_ids = db_config[1]['teamids']
         w2p = []
@@ -874,7 +874,10 @@ class PresentData():
             w2p.append(x2)
 
         allplayers = pd.concat(w2p, ignore_index=True).T.drop_duplicates().T
-        if 'Training' in allplayers.columns:
+        if return_w2:
+            return w2p
+        fig, ax = plt.subplots()
+        if 'Training' in allplayers.columns and not include_hidden_training:
             allplayers = allplayers[allplayers['Training'] != 'Hidden']
         else:
             allplayers['Training'] = 'Not in table'
@@ -907,7 +910,7 @@ class PresentData():
         plt.ylim([0, max(allplayers['Ratdif']) + 100])
         plt.show()
 
-        sns.lmplot(x='Age', y='Ratdif', data=allplayers, hue='TeamID')
+        #sns.lmplot(x='Age', y='Ratdif', data=allplayers, hue='TeamID')
 
     @staticmethod
     def team_increase_quiver(db_name, group1_entry, group2_entry):
@@ -1000,25 +1003,56 @@ def login(credentials, logtype='full', logfile='default'):
         log_event(logtext, logtype=logtype, logfile=logfile)
         return None
 
+def catagorise_training(db_time_pairs):
+    training_data_collection = []
+    for dbtpair in db_time_pairs:
+        training_data_week = pd.concat(PresentData.database_rating_increase_scatter(dbtpair[0], dbtpair[1], dbtpair[2], True))
+        non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
+        if dbtpair[2][1] - dbtpair[1][1] > 1:
+            non_hidden_training['Ratdif'] = np.divide(non_hidden_training['Ratdif'], dbtpair[2][1] - dbtpair[1][1])
+        training_data_collection.append(non_hidden_training)
+
+    all_training_data = pd.concat(training_data_collection)
+    training_type_dict = {}
+    for trainingtype in ['Batting', 'Bowling', 'Keeping', 'Keeper-Batsman', 'All-rounder', 'Fielding', 'Fitness', 'Batting Technique', 'Bowling Technique', 'Strength', 'Rest']:
+        training_type_data = all_training_data[all_training_data['Training'] == trainingtype]
+        training_type_data['Age'] = [int(floor(a)) for a in list(training_type_data['Age'])]
+        training_type_age_dict = {}
+        for age in range(int(min(np.append(training_type_data.Age, int(max(np.append(training_type_data.Age, 16)))))), int(max(np.append(training_type_data.Age, 16)))):
+            data = training_type_data[training_type_data['Age'] == age]
+            if len(data) > 0:
+                training_type_age_dict[age] = data
+
+        training_type_dict[trainingtype] = training_type_age_dict
+
+    return training_type_dict
+
 if __name__ == '__main__':
-    #w1players = PlayerDatabase.load_entry('teams-weekly', '46', '1', '6021', normalize_age=True)#pd.concat(w13players)
-    #w2players = PlayerDatabase.load_entry('teams-weekly', '46', '2', '6021', normalize_age=True)#pd.concat(w10players)
+    db_pairs = [['u21-national-squads', (46, 6), (46, 7)],
+                ['u21-national-squads', (46, 5), (46, 6)],
+                ['u21-national-squads', (46, 2), (46, 3)],
+                ['teams-weekly', (46, 2), (46, 3)],
+                ['teams-weekly', (46, 3), (46, 5)],
+                ['teams-weekly', (46, 5), (46, 7)],
+                ['nzl-od-34', (46, 5), (46, 7)],
+                ['nzl-t20-33', (46, 5), (46, 7)],
+                ['sa-od-42', (46, 5), (46, 7)]]
+    x = catagorise_training(db_pairs)
 
+    for k in x.keys():
+        print(k, len(pd.concat(x[k])) if len(x[k]) != 0 else 0)
 
-    #w1, w2 = PlayerDatabase.match_pg_ids(w13players, w14players, returnsortcolumn='Ratdif')
+    training_names = x.keys()
 
-    #x = x = PresentData.youth_pull_league_round(95147)
-    #print(x.to_markdown(index=[x+1 for x in range(len(x))], floatfmt='.2f'))
+    for training in training_names:
+        plt.plot([t for t in x[training].keys()], [sum(x[training][age]['Ratdif']) / len(x[training][age]) for age in x[training].keys()])
 
-    #pyc_round_5 = PresentData.youth_pull_league_round_overview(863, round_n=5, league_format='knockout')
-    #pyc_round_5_markdown_text = pyc_round_5.to_markdown(index=[x+1 for x in range(len(pyc_round_5))], floatfmt='.2f')
-
-    #pgt_round_6 = PresentData.youth_pull_league_round_overview(95147, round_n=7, league_format='league', max_weeks=3)
-    #pgt_round_6_markdown_text = pgt_round_6.to_markdown(index=[x + 1 for x in range(len(pgt_round_6))], floatfmt='.2f')
-
-    round_dic = {}
-    for round in [7, 8, 9]:
-        round_dic[round] = PresentData.youth_pull_league_round_overview(95147, round_n=round, league_format='league', weeks_since_game=10-round)
+    plt.legend(training_names)
+    #league_id = 97290
+    #current_round = 7
+    #round_dic = {}
+    #for round in [6, 7]:
+    #    round_dic[round] = PresentData.youth_pull_league_round_overview(league_id, round_n=round, league_format='league', weeks_since_game=current_round-round)
 
     #week_pak_recruits = pd.concat(pyc_round_2, pgt_round_3)
     #unique_pak_recruits = week_pak_recruits.drop_duplicates(['PlayerID'])
