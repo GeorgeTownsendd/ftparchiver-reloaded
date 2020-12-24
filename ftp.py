@@ -379,7 +379,20 @@ class PlayerDatabase():
                 log_event('Sleeping {} seconds until {} runtime at {}'.format(seconds_until_next_run, database_stack[0][0], database_stack[0][1]), ind_level=ind_level)
                 time.sleep(seconds_until_next_run)
 
-            db_next_runtime = PlayerDatabase.download_database(database_stack[0][0], return_next_runtime=True)
+            attempts_before_exiting = 10
+            current_attempt = 0
+            seconds_between_attempts = 60
+
+            while current_attempt <= attempts_before_exiting:
+                try:
+                    db_next_runtime = PlayerDatabase.download_database(database_stack[0][0], return_next_runtime=True)
+                    if current_attempt > 0:
+                        log_event('Completed successfully after {} failed attempts'.format(current_attempt), ind=ind)
+                    break
+                except:
+                    log_event('Error downloading database. {}/{} attempts, {}s between attempts...'.format(current_attempt, attempts_before_exiting, seconds_between_attempts), ind=ind+1)
+                    time.sleep(seconds_between_attempts)
+
             log_event('Database {} will be downloaded again at {}'.format(database_stack[0][0], db_next_runtime), ind_level=ind_level)
             database_stack[0][1] = db_next_runtime
             database_stack = sorted(database_stack, key=lambda x: x[1])
