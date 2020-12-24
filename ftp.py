@@ -990,7 +990,7 @@ def login(credentials, logtype='full', logfile='default'):
         log_event(logtext, logtype=logtype, logfile=logfile)
         return None
 
-def catagorise_training(db_time_pairs, min_data_include=1):
+def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit = 1):
     training_data_collection = []
     for dbtpair in db_time_pairs:
         training_data_week = pd.concat(PresentData.database_rating_increase_scatter(dbtpair[0], dbtpair[1], dbtpair[2], True))
@@ -998,6 +998,7 @@ def catagorise_training(db_time_pairs, min_data_include=1):
         non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
         weeks_of_training = dbtpair[2][1] - dbtpair[1][1]
         non_hidden_training['TrainingWeeks'] = weeks_of_training
+        non_hidden_training['DataTime'] = 's{}w{}'.format(dbtpair[2][0], dbtpair[2][1])
         if weeks_of_training > 1:
             non_hidden_training['Ratdif'] = np.divide(non_hidden_training['Ratdif'], weeks_of_training)
         training_data_collection.append(non_hidden_training)
@@ -1012,7 +1013,7 @@ def catagorise_training(db_time_pairs, min_data_include=1):
         for age in range(int(min(np.append(training_type_data.Age, int(max(np.append(training_type_data.Age, 16)))))), int(max(np.append(training_type_data.Age, 16)))):
             data = training_type_data[training_type_data['Age'] == age]
             if len(data) >= min_data_include:
-                data = data[np.abs(data.Ratdif - data.Ratdif.mean()) <= (3 * training_data_week.Ratdif.std())]
+                data = data[np.abs(data.Ratdif - data.Ratdif.mean()) <= (std_highlight_limit * training_data_week.Ratdif.std())]
                 # keep only values within +- 3 std of ratdif
 
                 training_type_age_dict[age] = data
@@ -1035,14 +1036,16 @@ if __name__ == '__main__':
                 ['PGT', (46, 2), (46, 5)],
                 ['PGT', (46, 5), (46, 7)]]
 
-    x = catagorise_training(db_pairs, min_data_include=10)
+    min_data_include = 3
+    std_highlight_limit = 1
+
+    x = catagorise_training(db_pairs, min_data_include, std_highlight_limit)
 
     for k in x.keys():
         print(k, len(pd.concat(x[k])) if len(x[k]) != 0 else 0)
 
     training_names = x.keys()
-    training_names = ['Fielding', 'Batting', 'Bowling']#, 'Batting', 'Bowling']
-
+    training_names = ['Fielding', 'Fitness', 'Strength']
     for training in training_names:
         training_ages = [t for t in x[training].keys()]
         training_average_increase = np.empty(len(x[training]))
@@ -1063,7 +1066,7 @@ if __name__ == '__main__':
 
 
     plt.legend(training_names)
-    plt.axis([16, 33, 0, 500])
+    plt.axis([15, 33, 0, 500])
     plt.xticks(range(16, 33), range(16, 33))
     #league_id = 97290
     #current_round = 7
