@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
 import mplcursors
 from math import floor
+pd.options.mode.chained_assignment = None  # default='warn'
 
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
 SKILL_LEVELS = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
@@ -387,7 +388,20 @@ class PlayerDatabase():
                 log_event('Sleeping {} seconds until {} runtime at {}'.format(seconds_until_next_run, database_stack[0][0], database_stack[0][1]), ind_level=ind_level)
                 time.sleep(seconds_until_next_run)
 
-            db_next_runtime = PlayerDatabase.download_database(database_stack[0][0], return_next_runtime=True)
+            attempts_before_exiting = 10
+            current_attempt = 0
+            seconds_between_attempts = 60
+
+            while current_attempt <= attempts_before_exiting:
+                try:
+                    db_next_runtime = PlayerDatabase.download_database(database_stack[0][0], return_next_runtime=True)
+                    if current_attempt > 0:
+                        log_event('Completed successfully after {} failed attempts'.format(current_attempt), ind=ind)
+                    break
+                except:
+                    log_event('Error downloading database. {}/{} attempts, {}s between attempts...'.format(current_attempt, attempts_before_exiting, seconds_between_attempts), ind=ind+1)
+                    time.sleep(seconds_between_attempts)
+
             log_event('Database {} will be downloaded again at {}'.format(database_stack[0][0], db_next_runtime), ind_level=ind_level)
             database_stack[0][1] = db_next_runtime
             database_stack = sorted(database_stack, key=lambda x: x[1])
@@ -718,6 +732,50 @@ class FTPUtils():
 
         return [str(age) if reverse else float(age) for age in new_ages]
 
+    @staticmethod
+    def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1):
+        '''
+        Catagorises a set of players from database/week pairs into a dictionary of
+        lists sorted by training/age. Used to view e.g. The average ratdif of all
+        22 year old players trained in Fielding
+
+        db_time_pair_element = (db_name, dbt1, dbt2)
+        dbt1 = (season, week)
+
+        min_data_include = minimum points of data to plot for an age
+        std_highlight_label = how wide the highlighted section should be for an age, by std
+        '''
+        training_data_collection = []
+        for dbtpair in db_time_pairs:
+            training_data_week = PresentData.ratdif_from_weeks(dbtpair[0], dbtpair[1], dbtpair[2])
+            training_data_week = training_data_week[(training_data_week['Training'] != 'Rest') & (training_data_week['Ratdif'] > 0)]
+            non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
+
+            training_data_collection.append(non_hidden_training)
+
+        all_training_data = pd.concat(training_data_collection)
+        all_training_data.drop_duplicates(['PlayerID', 'Rating'], inplace=True)
+        training_type_dict = {}
+        for trainingtype in ['Batting', 'Bowling', 'Keeping', 'Keeper-Batsman', 'All-rounder', 'Fielding', 'Fitness',
+                             'Batting Technique', 'Bowling Technique', 'Strength', 'Rest']:
+            training_type_data = all_training_data[all_training_data['Training'] == trainingtype]
+            training_type_data['Age'] = [int(floor(a)) for a in list(training_type_data['Age'])]
+            training_type_age_dict = {}
+            for age in range(
+                    int(min(np.append(training_type_data.Age, int(max(np.append(training_type_data.Age, 16)))))),
+                    int(max(np.append(training_type_data.Age, 16)))):
+                data = training_type_data[training_type_data['Age'] == age]
+                if len(data) >= min_data_include:
+                    data = data[np.abs(data.Ratdif - data.Ratdif.mean()) <= (
+                                std_highlight_limit * training_data_week.Ratdif.std())]
+                    # keep only values within +- 3 std of ratdif
+
+                    training_type_age_dict[age] = data
+
+            training_type_dict[trainingtype] = training_type_age_dict
+
+        return training_type_dict
+
 
 class PresentData():
     @staticmethod
@@ -848,21 +906,33 @@ class PresentData():
         return new_players
 
     @staticmethod
-    def database_rating_increase_scatter(db_name, group1_db_entry=[46, 2], group2_db_entry=[46, 3], return_w2=False, include_hidden_training=False):
+    def ratdif_from_weeks(db_name, dbt1, dbt2, average_ratdif=True):
         db_config = PlayerDatabase.load_config_file(db_name)
         db_team_ids = db_config[1]['teamids']
         w2p = []
         w1p = []
         for region_id in db_team_ids:
-            team_w1p = PlayerDatabase.load_entry(db_name, group1_db_entry[0], group1_db_entry[1], region_id, normalize_age=True)  # pd.concat(w13players)
-            team_w2p = PlayerDatabase.load_entry(db_name, group2_db_entry[0], group2_db_entry[1], region_id, normalize_age=True)  # pd.concat(w10players)
+            team_w1p = PlayerDatabase.load_entry(db_name, dbt1[0], dbt1[1], region_id, normalize_age=True)  # pd.concat(w13players)
+            team_w2p = PlayerDatabase.load_entry(db_name, dbt2[0], dbt2[1], region_id, normalize_age=True)  # pd.concat(w10players)
             x1, x2 = PlayerDatabase.match_pg_ids(team_w1p, team_w2p, returnsortcolumn='Ratdif')
             w1p.append(x1)
             w2p.append(x2)
 
         allplayers = pd.concat(w2p, ignore_index=True).T.drop_duplicates().T
-        if return_w2:
-            return w2p
+        weeks_of_training = dbt2[1] - dbt1[1]
+
+        allplayers['TrainingWeeks'] = weeks_of_training
+        allplayers['DataTime'] = 's{}w{}'.format(dbt2[0], dbt2[1])
+        if average_ratdif:
+            if weeks_of_training > 1:
+                allplayers['Ratdif'] = np.divide(allplayers['Ratdif'], weeks_of_training)
+
+        return allplayers
+
+    @staticmethod
+    def database_rating_increase_scatter(db_name, group1_db_entry=[46, 2], group2_db_entry=[46, 3], include_hidden_training=False):
+        allplayers = PresentData.ratdif_from_weeks(db_name, group1_db_entry, group2_db_entry
+                                                   )
         fig, ax = plt.subplots()
         if 'Training' in allplayers.columns and not include_hidden_training:
             allplayers = allplayers[allplayers['Training'] != 'Hidden']
@@ -937,6 +1007,33 @@ class PresentData():
         ax.set_ylabel('Average Rating')
         fig.show()
 
+    @staticmethod
+    def training_age_increase_plot(training_data, training_names):
+        for k in training_data.keys():
+            print(k, len(pd.concat(training_data[k])) if len(training_data[k]) != 0 else 0)
+
+        for training in training_names:
+            training_ages = [t for t in training_data[training].keys()]
+            training_average_increase = np.empty(len(training_data[training]))
+            training_average_increase_max = np.empty(len(training_data[training]))
+            training_average_increase_min = np.empty(len(training_data[training]))
+
+            for n, age in enumerate(training_data[training].keys()):
+                avg_increase = sum(training_data[training][age]['Ratdif']) / len(training_data[training][age]['Ratdif'])
+
+                training_average_increase[n] = avg_increase
+                training_average_increase_min[n] = min(training_data[training][age]['Ratdif'])
+                training_average_increase_max[n] = max(training_data[training][age]['Ratdif'])
+
+            plt.plot(training_ages, training_average_increase)
+
+            plt.fill_between(training_ages, training_average_increase_max, training_average_increase_min, alpha=0.5)
+
+
+        plt.legend(training_names)
+        plt.axis([15, 33, 0, 500])
+        plt.xticks(range(16, 33), range(16, 33))
+        plt.show()
 
 def log_event(logtext, logtype='full', logfile='default', ind_level = 0):
     current_time = datetime.datetime.now()
@@ -970,7 +1067,6 @@ def check_login():
 
     return True
 
-
 def login(credentials, logtype='full', logfile='default'):
     global browser
     browser = RoboBrowser(history=True)
@@ -990,51 +1086,27 @@ def login(credentials, logtype='full', logfile='default'):
         log_event(logtext, logtype=logtype, logfile=logfile)
         return None
 
-def catagorise_training(db_time_pairs):
-    training_data_collection = []
-    for dbtpair in db_time_pairs:
-        training_data_week = pd.concat(PresentData.database_rating_increase_scatter(dbtpair[0], dbtpair[1], dbtpair[2], True))
-        non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
-        if dbtpair[2][1] - dbtpair[1][1] > 1:
-            non_hidden_training['Ratdif'] = np.divide(non_hidden_training['Ratdif'], dbtpair[2][1] - dbtpair[1][1])
-        training_data_collection.append(non_hidden_training)
-
-    all_training_data = pd.concat(training_data_collection)
-    training_type_dict = {}
-    for trainingtype in ['Batting', 'Bowling', 'Keeping', 'Keeper-Batsman', 'All-rounder', 'Fielding', 'Fitness', 'Batting Technique', 'Bowling Technique', 'Strength', 'Rest']:
-        training_type_data = all_training_data[all_training_data['Training'] == trainingtype]
-        training_type_data['Age'] = [int(floor(a)) for a in list(training_type_data['Age'])]
-        training_type_age_dict = {}
-        for age in range(int(min(np.append(training_type_data.Age, int(max(np.append(training_type_data.Age, 16)))))), int(max(np.append(training_type_data.Age, 16)))):
-            data = training_type_data[training_type_data['Age'] == age]
-            if len(data) > 0:
-                training_type_age_dict[age] = data
-
-        training_type_dict[trainingtype] = training_type_age_dict
-
-    return training_type_dict
-
 if __name__ == '__main__':
     db_pairs = [['u21-national-squads', (46, 6), (46, 7)],
                 ['u21-national-squads', (46, 5), (46, 6)],
                 ['u21-national-squads', (46, 2), (46, 3)],
+                ['senior-national-squads', (46, 5), (46, 7)],
                 ['teams-weekly', (46, 2), (46, 3)],
                 ['teams-weekly', (46, 3), (46, 5)],
                 ['teams-weekly', (46, 5), (46, 7)],
                 ['nzl-od-34', (46, 5), (46, 7)],
                 ['nzl-t20-33', (46, 5), (46, 7)],
-                ['sa-od-42', (46, 5), (46, 7)]]
-    x = catagorise_training(db_pairs)
+                ['sa-od-42', (46, 5), (46, 7)],
+                ['PGT', (46, 2), (46, 5)],
+                ['PGT', (46, 5), (46, 7)]]
 
-    for k in x.keys():
-        print(k, len(pd.concat(x[k])) if len(x[k]) != 0 else 0)
+    min_data_include = 3
+    std_highlight_limit = 1
+    training_names = ['Fielding', 'Fitness', 'Strength']
 
-    training_names = x.keys()
+    training_data = FTPUtils.catagorise_training(db_pairs, min_data_include, std_highlight_limit)
+    PresentData.training_age_increase_plot(training_data, training_names)
 
-    for training in training_names:
-        plt.plot([t for t in x[training].keys()], [sum(x[training][age]['Ratdif']) / len(x[training][age]) for age in x[training].keys()])
-
-    plt.legend(training_names)
     #league_id = 97290
     #current_round = 7
     #round_dic = {}
