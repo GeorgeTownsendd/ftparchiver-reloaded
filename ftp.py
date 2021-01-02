@@ -5,8 +5,6 @@ import re
 from robobrowser import RoboBrowser
 import pandas as pd
 import shutil
-import ast
-import itertools
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -137,6 +135,8 @@ class PlayerDatabase():
                 if search_setting in search_settings.keys():
                     if search_setting == 'nation':
                         search_settings_form['country'].value = str(search_settings[search_setting])
+                    elif search_setting == 'region':
+                        search_settings_form['region'].value = str(search_settings[search_setting])
                     elif search_setting == 'wagesort':
                         search_settings_form['sortByWage'].value = str(search_settings[search_setting])
                     else:
@@ -733,7 +733,7 @@ class FTPUtils():
         return [str(age) if reverse else float(age) for age in new_ages]
 
     @staticmethod
-    def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1):
+    def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1, max_weeks_between_training=0):
         '''
         Catagorises a set of players from database/week pairs into a dictionary of
         lists sorted by training/age. Used to view e.g. The average ratdif of all
@@ -892,8 +892,6 @@ class PresentData():
             del new_players['Fatg']
             del new_players['Initial']
             del new_players['BT']
-            # del new_player_overview['Age']
-            # del new_player_overview['Nat']
 
             if not normalize_age:
                 new_players['Age'] = FTPUtils.normalize_age(new_players['Age'], reverse=True)
@@ -1094,6 +1092,7 @@ if __name__ == '__main__':
                 ['teams-weekly', (46, 2), (46, 3)],
                 ['teams-weekly', (46, 3), (46, 5)],
                 ['teams-weekly', (46, 5), (46, 7)],
+                ['teams-weekly', (46, 7), (46, 8)],
                 ['nzl-od-34', (46, 5), (46, 7)],
                 ['nzl-t20-33', (46, 5), (46, 7)],
                 ['sa-od-42', (46, 5), (46, 7)],
@@ -1102,9 +1101,10 @@ if __name__ == '__main__':
 
     min_data_include = 3
     std_highlight_limit = 1
-    training_names = ['Fielding', 'Fitness', 'Strength']
+    max_weeks_between_training = 1
+    training_names = ['Batting', 'Bowling', 'Fielding', 'Strength', 'Fitness']
 
-    training_data = FTPUtils.catagorise_training(db_pairs, min_data_include, std_highlight_limit)
+    training_data = FTPUtils.catagorise_training(db_pairs, min_data_include, std_highlight_limit, max_weeks_between_training)
     PresentData.training_age_increase_plot(training_data, training_names)
 
     #league_id = 97290
