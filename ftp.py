@@ -1149,7 +1149,7 @@ def track_player_training(playerid, database_config_file):
 
     return player_data_by_season
 
-def graph_player_training(playerid, database_name):
+def graph_player_training(playerid, database_name, save=False):
     fig, ax1 = plt.subplots()
 
     x = track_player_training(playerid, '{}/{}.config'.format(database_name, database_name))
@@ -1229,24 +1229,25 @@ def graph_player_training(playerid, database_name):
 
     plt.title('{} ({}) Rating / Pop History'.format(player_name, playerid), pad=20)
 
-    figure = plt.gcf()
-    DPI = figure.get_dpi()
-    figure.set_size_inches(800/float(DPI), 800/float(DPI))
-    plt.tight_layout()
+    if save:
+        figure = plt.gcf()
+        DPI = figure.get_dpi()
+        figure.set_size_inches(800/float(DPI), 800/float(DPI))
+        plt.tight_layout()
 
-    #plt.figure(figsize=(res[0]/img_dpi, res[1]/img_dpi), dpi=img_dpi)
-    plt.savefig('temp/player_training/{}.png'.format(playerid))
+        #plt.figure(figsize=(res[0]/img_dpi, res[1]/img_dpi), dpi=img_dpi)
+        plt.savefig('temp/player_training/{}.png'.format(playerid))
+        plt.close('all')
 
 if __name__ == '__main__':
     database_name = 'u21-national-squads'
-    teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 8, 3025)
+    teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 7, 3025)
     #player_ids = teams_weekly_w8.PlayerID
     player_ids = [2237227]
 
 
     for playerid in player_ids:
-        graph_player_training(playerid, database_name)
-        plt.close('all')
+        graph_player_training(playerid, database_name, save=False)
 
 
 
