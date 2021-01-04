@@ -2,15 +2,20 @@ import os
 import time
 import datetime
 import re
+import werkzeug
+werkzeug.cached_property = werkzeug.utils.cached_property
 from robobrowser import RoboBrowser
 import pandas as pd
 import shutil
 import numpy as np
 import matplotlib
+#matplotlib.use('Agg')
+from matplotlib import rcParams
+rcParams.update({'figure.autolayout': True})
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
 import mplcursors
-from math import floor
+from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
@@ -239,7 +244,7 @@ class PlayerDatabase():
 
         data_file = database + 's{}/w{}/{}.csv'.format(season, week, groupid)
         if os.path.isfile(data_file):
-            players = pd.read_csv(data_file, float_precision=2)
+            players = pd.read_csv(data_file, float_precision='2')
             if normalize_age:
                 players['Age'] = pd.Series(FTPUtils.normalize_age(players['Age']))
             return players
@@ -248,8 +253,9 @@ class PlayerDatabase():
 
     @staticmethod
     def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0):
-        check_login()
-        log_event('Saving additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
+        if column_types != ['SpareRat']: #no need to log in
+            check_login()
+        log_event('Creating additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
 
         all_player_data = []
         hidden_training_n = 0
@@ -264,7 +270,7 @@ class PlayerDatabase():
                     training_selection = 'Hidden'
                     hidden_training_n += 1
 
-            if column_types != ['Training']:
+            if column_types != ['Training'] and column_types != ['SpareRat']:
                 browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
                 player_page = str(browser.parsed)
 
@@ -330,17 +336,47 @@ class PlayerDatabase():
         pg1_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
         pg2_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
 
-        rating_differences = pg2_shared['Rating'] - pg1_shared['Rating']
-        wage_differences = pg2_shared['Wage'] - pg1_shared['Wage']
-        pg1_shared.insert(len(pg1_shared.columns), 'Ratdif', rating_differences)
-        pg2_shared.insert(len(pg2_shared.columns), 'Ratdif', rating_differences)
-        pg1_shared.insert(len(pg1_shared.columns), 'Wagedif', wage_differences)
-        pg2_shared.insert(len(pg2_shared.columns), 'Wagedif', wage_differences)
+        add_columns = ['Ratdif', 'Wagedif', 'SkillShift']
+        pg2_shared = PlayerDatabase.calculate_additional_columns(pg1_shared, pg2_shared, add_columns)
 
         pg1_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
         pg2_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
 
         return pg1_shared, pg2_shared
+
+    @staticmethod
+    def calculate_additional_columns(pg1, pg2, columns):
+        for c in columns:
+            if c == 'Ratdif':
+                rating_differences = pg2['Rating'] - pg1['Rating']
+                pg2.insert(len(pg2.columns), 'Ratdif', rating_differences)
+            elif c == 'Wagedif':
+                wage_differences = pg2['Wage'] - pg1['Wage']
+                pg2.insert(len(pg2.columns), 'Wagedif', wage_differences)
+            elif c == 'SkillShift':
+                popped_skills = [PlayerDatabase.calculate_player_skillshifts(playert_1, playert_2) for playert_1, playert_2 in zip(pg1, pg2)]
+                pg2.insert(len(pg2.columns), 'SkillShift', '-'.join(popped_skills))
+
+        return pg2
+
+    @staticmethod
+    def calculate_player_skillshifts(player_data1, player_data2):
+        long_names = ['Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
+        short_names = ['Bat', 'End', 'Bowl', 'Tech', 'Keep', 'Power', 'Field']
+        saved_columns = [t for t in player_data1.axes[0].values]
+        shifts = []
+
+        if 'Bat' in saved_columns:
+            col_names = short_names
+        elif 'Batting' in saved_columns:
+            col_names = long_names
+
+        for c in col_names:
+            if player_data1[c] != player_data2[c]:
+                skill_ind = col_names.index(c)
+                shifts.append(long_names[skill_ind])
+
+        return shifts
 
     @staticmethod
     def next_run_time(db_config_file):
@@ -1084,8 +1120,137 @@ def login(credentials, logtype='full', logfile='default'):
         log_event(logtext, logtype=logtype, logfile=logfile)
         return None
 
+def track_player_training(playerid, database_config_file):
+    database_config = PlayerDatabase.load_config_file(database_config_file)
+    player_data_by_season = {season : {} for season in os.listdir(database_config[0]['w_directory']) if bool(re.match('^.*s[0-9]+.*$', season))}
+    lastweek = None
+
+    for season in player_data_by_season.keys():
+        season_directory = database_config[0]['w_directory'] + season + '/'
+        for week in os.listdir(season_directory):
+            week_directory = season_directory + week + '/'
+            for teamid in [x for x in os.listdir(week_directory) if x[-4:] == '.csv']:
+                team_data = PlayerDatabase.load_entry(database_config[0]['w_directory'], ''.join([x for x in season if x.isdigit()]), ''.join([x for x in week if x.isdigit()]), ''.join([x for x in teamid if x.isdigit()]))
+                player_data_week = team_data[team_data['PlayerID'] == playerid]
+                if not player_data_week.empty:
+                    player_data_week = player_data_week.iloc[0]
+                    column_names = [t for t in player_data_week.axes[0].values]
+                    if 'Bat' in column_names and 'Training' in column_names:
+                        player_data_week['SpareRat'] = FTPUtils.get_player_spare_ratings(player_data_week, col_name_len='short')
+                        if not isinstance(lastweek, type(None)):# and 'SkillShift' not in column_names:
+                            trained_skill_list = PlayerDatabase.calculate_player_skillshifts(lastweek, player_data_week)
+                            trained_skills = '-'.join(trained_skill_list)
+                            if trained_skills != '':
+                                player_data_week['SkillShift'] = trained_skills
+
+                        player_data_by_season[season][week] = player_data_week
+                        lastweek = player_data_week
+                        break
+
+    return player_data_by_season
+
+def graph_player_training(playerid, database_name):
+    fig, ax1 = plt.subplots()
+
+    x = track_player_training(playerid, '{}/{}.config'.format(database_name, database_name))
+    player_timestamps = []
+    player_ratings = []
+    players_sparerat = []
+    player_pops = []
+    player_training_sessions = []
+    player_name = False
+
+    for s in x.keys():
+        for w in x[s].keys():
+            player_included = not x[s][w].empty
+            if player_included:
+                player_data = x[s][w]
+                season_n, week_n = int(s[1:]), int(w[1:])
+                player_timestamps.append((season_n, week_n))
+
+                player_rating = player_data['Rating']
+                player_ratings.append(player_rating)
+
+                player_sparerating = player_data['SpareRat']
+                players_sparerat.append(player_sparerating)
+
+                player_training = player_data['Training']
+                player_training_sessions.append(player_training)
+
+                if not player_name:
+                    player_name = player_data['Player']
+
+                if 'SkillShift' in [x for x in player_data.axes[0]]:
+                    player_pop = player_data['SkillShift']
+                    player_pops.append(player_pop)
+                else:
+                    player_pops.append('not-saved')
+
+    abs_weeks = [(d[0] * 15) + d[1] for d in player_timestamps]
+    ax1.plot(abs_weeks, player_ratings, color='tab:blue')
+    ax1.set_ylabel('Rating', color='tab:blue')
+
+    for n, pop in enumerate(player_pops):
+        if pop not in ['not-saved', 'none', 'Experience', 'Captaincy', ''] and type(pop) == str:
+            ax1.axvline(abs_weeks[n], color='tab:green', linestyle='--', label=pop)
+        else:
+            ax1.axvline(abs_weeks[n], color='tab:grey', linestyle='--')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Spare Ratings', color='tab:red')
+    ax2.plot(abs_weeks, players_sparerat, color='tab:red')
+
+    if len(abs_weeks) == 0:
+        abs_weeks += [0, 1]
+        ax1.set_yticks([0, 1])
+        ax2.set_yticks([0, 1])
+
+    ax2.set_xticks([x for x in range(min(abs_weeks), max(abs_weeks) + 1)])
+
+    labels = ['s{}w{}'.format(x // 15, x % 15) for x in range(min(abs_weeks), max(abs_weeks) + 1)]
+    labels_with_training = []
+    formatted_timestamps = ['s{}w{}'.format(t[0], t[1]) for t in player_timestamps]
+    for label in labels:
+        if label in formatted_timestamps:
+            ind = formatted_timestamps.index(label)
+            if player_pops[ind] not in ['not-saved', 'none', 'Experience', 'Captaincy', ''] and isinstance(player_pops[ind], str):
+                newlabel = label + '\n({})'.format(player_pops[ind])
+                labels_with_training.append(newlabel)
+            else:
+                labels_with_training.append(label)
+        else:
+            labels_with_training.append(label)
+
+    ax2.set_xticklabels(labels_with_training, rotation=90)
+
+    ax_t = ax2.secondary_xaxis('top')
+    ax_t.set_xticks(abs_weeks)
+    ax_t.set_xticklabels(player_training_sessions)
+
+    plt.title('{} ({}) Rating / Pop History'.format(player_name, playerid), pad=20)
+
+    figure = plt.gcf()
+    DPI = figure.get_dpi()
+    figure.set_size_inches(800/float(DPI), 800/float(DPI))
+    plt.tight_layout()
+
+    #plt.figure(figsize=(res[0]/img_dpi, res[1]/img_dpi), dpi=img_dpi)
+    plt.savefig('temp/player_training/{}.png'.format(playerid))
+
 if __name__ == '__main__':
-    db_pairs = [['u21-national-squads', (46, 6), (46, 7)],
+    database_name = 'u21-national-squads'
+    teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 8, 3025)
+    #player_ids = teams_weekly_w8.PlayerID
+    player_ids = [2237227]
+
+
+    for playerid in player_ids:
+        graph_player_training(playerid, database_name)
+        plt.close('all')
+
+
+
+    '''db_pairs = [['u21-national-squads', (46, 6), (46, 7)],
                 ['u21-national-squads', (46, 5), (46, 6)],
                 ['u21-national-squads', (46, 2), (46, 3)],
                 ['senior-national-squads', (46, 5), (46, 7)],
@@ -1102,10 +1267,13 @@ if __name__ == '__main__':
     min_data_include = 3
     std_highlight_limit = 1
     max_weeks_between_training = 1
-    training_names = ['Batting', 'Bowling', 'Fielding', 'Strength', 'Fitness']
+    training_names = ['Batting', 'Bowling', 'Fielding', 'Strength', 'Fitness', 'All-rounder']
 
     training_data = FTPUtils.catagorise_training(db_pairs, min_data_include, std_highlight_limit, max_weeks_between_training)
-    PresentData.training_age_increase_plot(training_data, training_names)
+    PresentData.training_age_increase_plot(training_data, training_names)'''
+
+
+
 
     #league_id = 97290
     #current_round = 7
