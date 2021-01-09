@@ -89,7 +89,7 @@ class PlayerDatabase():
         return database_settings, additional_settings
 
     @staticmethod
-    def player_search(search_settings={}, to_file=False, search_type='transfer_market', extra_columns=False, normalize_age=False, additional_columns=False, ind_level=0):
+    def player_search(search_settings={}, to_file=False, search_type='transfer_market', normalize_age=False, additional_columns=False, return_sort_column=False, ind_level=0):
         global browser
         check_login()
 
@@ -177,8 +177,13 @@ class PlayerDatabase():
 
         if additional_columns:
             players_df = PlayerDatabase.add_player_columns(players_df, additional_columns, ind_level=ind_level+1)
+            sorted_columns = ['Player', 'PlayerID', 'Age', 'NatSquad', 'Touring', 'Wage', 'Rating' 'BT', 'End', 'Bat', 'Bowl', 'Tech', 'Pow', 'Keep', 'Field', 'Exp', 'Talents', 'SpareRat']
+            players_df = players_df.reindex(columns=sorted_columns)
 
         players_df.drop(columns=[x for x in ['#', 'Unnamed: 18'] if x in players_df.columns], inplace=True)
+
+        if return_sort_column:
+            players_df.sort_values(return_sort_column, inplace=True, ascending=False)
 
         if to_file:
             pd.DataFrame.to_csv(players_df, to_file, index=False, float_format='%.2f')
@@ -1136,12 +1141,16 @@ def track_player_training(playerid, database_config_file):
                     player_data_week = player_data_week.iloc[0]
                     column_names = [t for t in player_data_week.axes[0].values]
                     if 'Bat' in column_names and 'Training' in column_names:
-                        player_data_week['SpareRat'] = FTPUtils.get_player_spare_ratings(player_data_week, col_name_len='short')
                         if not isinstance(lastweek, type(None)):# and 'SkillShift' not in column_names:
                             trained_skill_list = PlayerDatabase.calculate_player_skillshifts(lastweek, player_data_week)
                             trained_skills = '-'.join(trained_skill_list)
                             if trained_skills != '':
                                 player_data_week['SkillShift'] = trained_skills
+
+                            player_data_week['Ratdif'] = player_data_week['Rating'] - lastweek['Rating']
+                        else:
+                            player_data_week['Ratdif'] = '???'
+                        player_data_week['SpareRat'] = FTPUtils.get_player_spare_ratings(player_data_week, col_name_len='short')
 
                         player_data_by_season[season][week] = player_data_week
                         lastweek = player_data_week
@@ -1154,6 +1163,7 @@ def graph_player_training(playerid, database_name):
 
     x = track_player_training(playerid, '{}/{}.config'.format(database_name, database_name))
     player_timestamps = []
+    player_ordered_data = []
     player_ratings = []
     players_sparerat = []
     player_pops = []
@@ -1176,6 +1186,8 @@ def graph_player_training(playerid, database_name):
 
                 player_training = player_data['Training']
                 player_training_sessions.append(player_training)
+
+                player_ordered_data.append(player_data)
 
                 if not player_name:
                     player_name = player_data['Player']
@@ -1213,8 +1225,9 @@ def graph_player_training(playerid, database_name):
     for label in labels:
         if label in formatted_timestamps:
             ind = formatted_timestamps.index(label)
+            label = label + ' ({})'.format(FTPUtils.normalize_age([player_ordered_data[ind]['Age']], reverse=True)[0])
             if player_pops[ind] not in ['not-saved', 'none', 'Experience', 'Captaincy', ''] and isinstance(player_pops[ind], str):
-                newlabel = label + '\n({})'.format(player_pops[ind])
+                newlabel = label + '\n+{}'.format('\n+'.join(player_pops[ind].split('-')))
                 labels_with_training.append(newlabel)
             else:
                 labels_with_training.append(label)
@@ -1225,9 +1238,16 @@ def graph_player_training(playerid, database_name):
 
     ax_t = ax2.secondary_xaxis('top')
     ax_t.set_xticks(abs_weeks)
-    ax_t.set_xticklabels(player_training_sessions)
 
-    plt.title('{} ({}) Rating / Pop History'.format(player_name, playerid), pad=20)
+    labels = ['{} (+{})'.format(t, player_ordered_data[n]['Ratdif']) for n, t in enumerate(player_training_sessions)]
+    lastweek = 0
+    for n, week in enumerate(abs_weeks):
+        if week - lastweek != 1 and lastweek != 0:
+            labels[n] = labels[n][:labels[n].index('(')] + '(+' + str(int(''.join([x for x in labels[n][:-1] if x.isdigit()])) // (week - lastweek)) + ' avg.)'
+        lastweek = week
+    ax_t.set_xticklabels(labels)
+
+    plt.title('{} ({}) - Training History'.format(player_name, playerid), pad=20)
 
     figure = plt.gcf()
     DPI = figure.get_dpi()
@@ -1239,9 +1259,10 @@ def graph_player_training(playerid, database_name):
 
 if __name__ == '__main__':
     database_name = 'u21-national-squads'
-    teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 8, 3025)
-    #player_ids = teams_weekly_w8.PlayerID
-    player_ids = [2237227]
+    teamid = 3025
+    teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 8, teamid)
+    player_ids = teams_weekly_w8.PlayerID
+    player_ids = [2131154]
 
 
     for playerid in player_ids:
