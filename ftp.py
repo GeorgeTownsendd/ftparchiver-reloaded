@@ -223,7 +223,7 @@ class PlayerDatabase():
         elif database_settings['database_type'] == 'best_player_search':
             for nationality_id in additional_settings['teamids']:
                 additional_settings['nation'] = nationality_id
-                player_df.append(PlayerDatabase.player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), ind_level=ind_level+1), additional_columns=database_settings['additional_columns'])
+                player_df.append(PlayerDatabase.player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), additional_columns=database_settings['additional_columns'], ind_level=ind_level+1))
         elif database_settings['database_type'] == 'transfer_market_search':
             player_df = PlayerDatabase.player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1)
             player_df.to_csv(database_settings['w_directory'] + '/s{}/w{}/{}.csv'.format(season, week, player_df['Deadline'][0] + ' - ' + player_df['Deadline'][len(player_df['Deadline'])-1]))
@@ -1258,16 +1258,16 @@ def graph_player_training(playerid, database_name):
     plt.savefig('temp/player_training/{}.png'.format(playerid))
 
 if __name__ == '__main__':
-    database_name = 'u21-national-squads'
-    teamid = 3025
-    teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 8, teamid)
-    player_ids = teams_weekly_w8.PlayerID
-    player_ids = [2131154]
+    #database_name = 'u21-national-squads'
+    #teamid = 3025
+    #teams_weekly_w8 = PlayerDatabase.load_entry(database_name, 46, 8, teamid)
+    #player_ids = teams_weekly_w8.PlayerID
+    #player_ids = [2131154]
 
 
-    for playerid in player_ids:
-        graph_player_training(playerid, database_name)
-        plt.close('all')
+    #for playerid in player_ids:
+    #    graph_player_training(playerid, database_name)
+    #    plt.close('all')
 
 
 
