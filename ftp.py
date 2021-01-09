@@ -727,7 +727,7 @@ class FTPUtils():
 
 
     @staticmethod
-    def game_scordcard_table(gameid, ind_level=0):
+    def game_scorecard_table(gameid, ind_level=0):
         global browser
         check_login()
 
@@ -868,7 +868,7 @@ class PresentData():
                 round_teams.append(game[0]) #home
                 round_teams.append(game[1]) #away
         else:
-            scorecard_tables = [FTPUtils.game_scordcard_table(gameid) for gameid in requested_games]
+            scorecard_tables = [FTPUtils.game_scoredcard_table(gameid) for gameid in requested_games]
             for game in [g[-2] for g in scorecard_tables]:
                 round_teams.append(game[1][0]) #home
                 round_teams.append(game[1][1]) #away
