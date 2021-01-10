@@ -1,5 +1,5 @@
-import ftputils as FTPUtils
-import ftppresentation as PresentData
+import FTPUtils
+import PresentData
 
 import os
 import time
@@ -97,11 +97,15 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
             url = url.format('transfer')
         elif search_type == 'nat_search':
             url = url.format('natsearch')
+        else:
+            FTPUtils.log_event('Invalid search_type in player_search! - {}'.format(search_type))
+
         browser.open(url)
         search_settings_form = browser.get_form()
 
         for setting in search_settings.keys():
             search_settings_form[setting] = str(search_settings[setting])
+
 
         browser.submit_form(search_settings_form)
         players_df = pd.read_html(str(browser.parsed))[0]
@@ -174,7 +178,8 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
 
     if additional_columns:
         players_df = add_player_columns(players_df, additional_columns, ind_level=ind_level+1, use_browser=browser)
-        sorted_columns = ['Player', 'PlayerID', 'Age', 'NatSquad', 'Touring', 'Wage', 'Rating' 'BT', 'End', 'Bat', 'Bowl', 'Tech', 'Pow', 'Keep', 'Field', 'Exp', 'Talents', 'SpareRat']
+        sorted_columns = ['Player', 'PlayerID', 'Age', 'NatSquad', 'Touring', 'Wage', 'Rating','BT', 'End', 'Bat', 'Bowl', 'Tech', 'Pow', 'Keep', 'Field', 'Exp', 'Talents', 'SpareRat']
+        sorted_columns = sorted_columns + [c for c in list(players_df.columns) if c not in sorted_columns]
         players_df = players_df.reindex(columns=sorted_columns)
 
     players_df.drop(columns=[x for x in ['#', 'Unnamed: 18'] if x in players_df.columns], inplace=True)
@@ -184,8 +189,6 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
 
     if to_file:
         pd.DataFrame.to_csv(players_df, to_file, index=False, float_format='%.2f')
-
-    print(players_df)
 
     return players_df
 
@@ -227,6 +230,7 @@ def download_database(config_file_directory, preserve_exisiting=False, return_ne
             player_df.append(player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), additional_columns=database_settings['additional_columns'], ind_level=ind_level+1))
     elif database_settings['database_type'] == 'transfer_market_search':
         player_df = player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1, use_browser=browser)
+        print('search_results', player_df, player_df.columns)
         player_df.to_csv(database_settings['w_directory'] + '/s{}/w{}/{}.csv'.format(season, week, player_df['Deadline'][0] + ' - ' + player_df['Deadline'][len(player_df['Deadline'])-1]))
 
     #FTPUtils.log_event('Successfully saved {} players from database {}'.format(len(player_df.PlayerID), database_settings['name']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
@@ -264,6 +268,7 @@ def add_player_columns(player_df, column_types, normalize_wages=True, returnsort
             browser = use_browser
         browser = FTPUtils.check_login(browser, return_browser=True)
     FTPUtils.log_event('Creating additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
+
 
     all_player_data = []
     hidden_training_n = 0
@@ -325,9 +330,11 @@ def add_player_columns(player_df, column_types, normalize_wages=True, returnsort
     if hidden_training_n > 0:
         FTPUtils.log_event('Training not visible for {}/{} players - marked "Hidden" in dataframe'.format(hidden_training_n, len(player_df['PlayerID'])), ind_level=ind_level+1)
 
+
     for n, column_name in enumerate(column_types):
         values = [v[n] for v in all_player_data]
         player_df.insert(3, column_name, values)
+
 
     if returnsortcolumn in player_df.columns:
         player_df.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)

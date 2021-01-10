@@ -1,5 +1,5 @@
-import ftputils as FTPUtils
-import ftpdatabase as PlayerDatabase
+import FTPUtils
+import PlayerDatabase
 
 import os
 import time

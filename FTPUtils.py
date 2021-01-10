@@ -1,5 +1,5 @@
-import ftpdatabase as PlayerDatabase
-import ftppresentation as PresentData
+import PlayerDatabase
+import PresentData
 
 import os
 import time
@@ -46,7 +46,7 @@ def check_login(use_browser=False, return_browser=False):
     if use_browser:
         browser = use_browser
 
-    if isinstance(browser, type(None)) or isinstance(browser, type(bool)):
+    if isinstance(browser, type(None)):
         with open('credentials.txt', 'r') as f:
             credentials = f.readline().split(',')
         browser = login(credentials)
@@ -66,13 +66,17 @@ def check_login(use_browser=False, return_browser=False):
                 return browser
             else:
                 return True
-    if return_browser:
-        return browser
-    else:
-        return True
+        else:
+            if return_browser:
+                return browser
+            else:
+                return True
 
-def login(credentials, logtype='full', logfile='default'):
+def login(credentials, logtype='full', logfile='default', use_browser=False):
     global browser
+    if use_browser:
+        browser = use_browser
+
     browser = RoboBrowser(history=True)
     browser.open('http://www.fromthepavilion.org/')
     form = browser.get_form(action='securityCheck.htm')
@@ -81,7 +85,7 @@ def login(credentials, logtype='full', logfile='default'):
     form['j_password'] = credentials[1]
 
     browser.submit_form(form)
-    if check_login():
+    if check_login(browser, return_browser=False):
         logtext = 'Successfully logged in as user {}.'.format(credentials[0])
         log_event(logtext, logtype=logtype, logfile=logfile)
         return browser
@@ -120,8 +124,11 @@ def skill_word_to_index(skill_w, skill_word_type='full'):
     return skill_n
 
 
-def get_player_page(player_id):
-    check_login()
+def get_player_page(player_id, use_browser=False):
+    global browser
+    if use_browser:
+        browser = use_browser
+    browser = check_login(browser, return_browser=True)
 
     browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
     page = str(browser.parsed)
@@ -144,7 +151,7 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
     global browser
     if use_browser:
         browser = use_browser
-    check_login()
+    browser = check_login(browser, return_browser=True)
 
     if int(teamid) in range(3001, 3019) or int(teamid) in range(3021, 3039) and squad_type == 'domestic_team':
         squad_type = 'national_team'
@@ -280,9 +287,10 @@ def get_player_summary(player_id, page=False):
     return summary_dir
 
 
-def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0):
+def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0, use_browser=False):
     global browser
-    check_login()
+    if use_browser:
+        browser = check_login(browser, return_browser=True)
 
     if league_format == 'knockout':
         if not isinstance(knockout_round, None):
@@ -309,7 +317,7 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league', use_b
     global browser
     if use_browser:
         browser = use_browser
-    check_login()
+    browser = check_login(browser, return_browser=True)
 
     if round_n == 'latest':
         round_n = 1
@@ -366,7 +374,7 @@ def get_game_scorecard_table(gameid, ind_level=0, use_browser=False):
     global browser
     if use_browser:
         browser = use_browser
-    check_login()
+    browser = check_login(browser, return_browser=True)
 
     browser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
     scorecard_tables = pd.read_html(str(browser.parsed))
@@ -384,7 +392,7 @@ def get_game_teamids(gameid, ind_level=0, use_browser=False):
     global browser
     if use_browser:
         browser = use_browser
-    check_login()
+    browser = check_login(browser, return_browser=True)
 
     browser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
     page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
