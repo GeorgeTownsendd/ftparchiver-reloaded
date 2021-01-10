@@ -727,7 +727,7 @@ class FTPUtils():
 
 
     @staticmethod
-    def game_scorecard_table(gameid, ind_level=0):
+    def get_game_scorecard_table(gameid, ind_level=0):
         global browser
         check_login()
 
