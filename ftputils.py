@@ -21,6 +21,7 @@ import mplcursors
 from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
+browser = False
 SKILL_LEVELS = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
 
 def log_event(logtext, logtype='full', logfile='default', ind_level=0):
@@ -40,16 +41,19 @@ def log_event(logtext, logtype='full', logfile='default', ind_level=0):
         logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
 
 
-def check_login(use_browser=False):
+def check_login(use_browser=False, return_browser=False):
     global browser
     if use_browser:
         browser = use_browser
 
-    if isinstance(browser, type(None)):
+    if isinstance(browser, type(None)) or isinstance(browser, type(bool)):
         with open('credentials.txt', 'r') as f:
             credentials = f.readline().split(',')
         browser = login(credentials)
-        return True
+        if return_browser:
+            return browser
+        else:
+            return True
     else:
         last_page_load = datetime.datetime.strptime(str(browser.response.headers['Date'])[:-4]+'+0000', '%a, %d %b %Y %H:%M:%S%z')
         if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) > datetime.timedelta(minutes=10):
@@ -58,9 +62,14 @@ def check_login(use_browser=False):
                 credentials = f.readline().split(',')
             browser = login(credentials)
             browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-            return True
-
-    return True
+            if return_browser:
+                return browser
+            else:
+                return True
+    if return_browser:
+        return browser
+    else:
+        return True
 
 def login(credentials, logtype='full', logfile='default'):
     global browser

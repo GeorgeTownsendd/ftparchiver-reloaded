@@ -21,6 +21,8 @@ import mplcursors
 from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
+browser = False
+
 def youth_pull_league_round_overview(leagueid, normalize_age=False, league_format='league', round_n='latest', ind_level=0, weeks_since_game='default', use_browser=False):
     global browser
     if use_browser:
