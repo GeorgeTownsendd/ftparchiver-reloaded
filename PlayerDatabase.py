@@ -174,7 +174,7 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
         players_df['Wage'] = players_df['Wage'].str.replace('\D+', '')
 
     if normalize_age:
-        players_df['Age'] = normalize_age(players_df['Age'])
+        players_df['Age'] = FTPUtils.normalize_age_list(players_df['Age'])
 
     if additional_columns:
         players_df = add_player_columns(players_df, additional_columns, ind_level=ind_level+1, use_browser=browser)
@@ -254,7 +254,7 @@ def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0)
     if os.path.isfile(data_file):
         players = pd.read_csv(data_file, float_precision='2')
         if normalize_age:
-            players['Age'] = pd.Series(normalize_age(players['Age']))
+            players['Age'] = pd.Series(FTPUtils.normalize_age_list((players['Age'])))
         return players
     else:
         FTPUtils.log_event('Error loading database entry (file not found): {}'.format(data_file), logtype='full', logfile=log_files, ind_level=ind_level)
@@ -377,6 +377,7 @@ def calculate_additional_columns(pg1, pg2, columns):
 def calculate_player_skillshifts(player_data1, player_data2):
     long_names = ['Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
     short_names = ['Bat', 'End', 'Bowl', 'Tech', 'Keep', 'Power', 'Field']
+    print(player_data1)
     saved_columns = [t for t in player_data1.axes[0].values]
     shifts = []
 

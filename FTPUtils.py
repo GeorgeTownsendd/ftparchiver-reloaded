@@ -496,7 +496,7 @@ def ratdif_from_weeks(db_name, dbt1, dbt2, average_ratdif=True):
     for region_id in db_team_ids:
         team_w1p = PlayerDatabase.load_entry(db_name, dbt1[0], dbt1[1], region_id, normalize_age=True)  # pd.concat(w13players)
         team_w2p = PlayerDatabase.load_entry(db_name, dbt2[0], dbt2[1], region_id, normalize_age=True)  # pd.concat(w10players)
-        x1, x2 = PresentData.match_pg_ids(team_w1p, team_w2p, returnsortcolumn='Ratdif')
+        x1, x2 = PlayerDatabase.match_pg_ids(team_w1p, team_w2p, returnsortcolumn='Ratdif')
         w1p.append(x1)
         w2p.append(x2)
 
