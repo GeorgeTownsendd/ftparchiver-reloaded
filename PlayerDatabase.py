@@ -230,7 +230,6 @@ def download_database(config_file_directory, preserve_exisiting=False, return_ne
             player_df.append(player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), additional_columns=database_settings['additional_columns'], ind_level=ind_level+1))
     elif database_settings['database_type'] == 'transfer_market_search':
         player_df = player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1, use_browser=browser)
-        print('search_results', player_df, player_df.columns)
         player_df.to_csv(database_settings['w_directory'] + '/s{}/w{}/{}.csv'.format(season, week, player_df['Deadline'][0] + ' - ' + player_df['Deadline'][len(player_df['Deadline'])-1]))
 
     #FTPUtils.log_event('Successfully saved {} players from database {}'.format(len(player_df.PlayerID), database_settings['name']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
@@ -441,14 +440,12 @@ def watch_database_list(database_list, ind_level=0, use_browser=False):
         current_datetime = datetime.datetime.now(datetime.timezone.utc)
         seconds_until_next_run = int((database_stack[0][1] - current_datetime).total_seconds())
         if seconds_until_next_run > 0:
-            FTPUtils.log_event('Sleeping {} seconds until {} runtime at {}'.format(seconds_until_next_run, database_stack[0][0], database_stack[0][1]), ind_level=ind_level)
+            FTPUtils.log_event('Sleeping {}m{}s until {} runtime at {}'.format(seconds_until_next_run // 60, seconds_until_next_run % 60, database_stack[0][0], database_stack[0][1]), ind_level=ind_level)
             time.sleep(seconds_until_next_run)
 
         attempts_before_exiting = 10
         current_attempt = 0
         seconds_between_attempts = 60
-
-        db_next_runtime = download_database(database_stack[0][0], return_next_runtime=True, use_browser=browser)
 
         while current_attempt <= attempts_before_exiting:
             try:
