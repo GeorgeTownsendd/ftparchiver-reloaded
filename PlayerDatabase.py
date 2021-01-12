@@ -71,7 +71,11 @@ def load_config_file(config_file_directory):
             if setting_name in ['additional_columns', 'archive_days', 'teamids']:
                 all_file_values[setting_name]= value.split(',')
             elif setting_name in ['scrape_time']:
-                all_file_values[setting_name] = value.split(':')
+                if ':' in value:
+                    all_file_values[setting_name] = value.split(':')
+                else:
+                    if value in ['youthtraining', 'seniortraining']:
+                        all_file_values[setting_name] = value
             else:
                 all_file_values[setting_name] = value
 
@@ -193,12 +197,11 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
     return players_df
 
 
-def download_database(config_file_directory, preserve_exisiting=False, return_next_runtime=False, ind_level=0, use_browser=False):
+def download_database(config_file_directory, download_teams_whitelist=False, preserve_exisiting=False, return_next_runtime=False, ind_level=0, use_browser=False):
     global browser
     if use_browser:
         browser = use_browser
     browser = FTPUtils.check_login(browser, return_browser=True)
-    FTPUtils.log_event('Downloading database {}'.format(config_file_directory.split('/')[-1]), ind_level=ind_level)
 
     if '/' not in config_file_directory:
         config_file_directory = config_file_directory + '/' + config_file_directory + '.config'
@@ -206,6 +209,14 @@ def download_database(config_file_directory, preserve_exisiting=False, return_ne
     database_settings, additional_settings = load_config_file(config_file_directory)
     if 'additional_columns' not in database_settings.keys():
         database_settings['additional_columns'] = False
+
+    if download_teams_whitelist:
+        download_teams_whitelist = [str(t) for t in download_teams_whitelist]
+        teams_to_download = [team for team in additional_settings['teamids'] if str(team) in download_teams_whitelist]
+        FTPUtils.log_event('Downloading {}/{} entries ({}) from database {}'.format(len(download_teams_whitelist), len(additional_settings['teamids']), download_teams_whitelist, config_file_directory.split('/')[-1]), ind_level=ind_level)
+    else:
+        teams_to_download = additional_settings['teamids']
+        FTPUtils.log_event('Downloading database {}'.format(config_file_directory.split('/')[-1]), ind_level=ind_level)
 
     browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
     timestr = re.findall('Week [0-9]+, Season [0-9]+', str(browser.parsed))[0]
@@ -222,10 +233,10 @@ def download_database(config_file_directory, preserve_exisiting=False, return_ne
 
     player_df = pd.DataFrame()
     if database_settings['database_type'] in ['domestic_team', 'national_team']:
-        for teamid in additional_settings['teamids']:
+        for teamid in teams_to_download:
             player_df.append(FTPUtils.get_team_players(teamid, age_group=additional_settings['age'], to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, teamid), ind_level=ind_level+1, additional_columns=database_settings['additional_columns']))
     elif database_settings['database_type'] == 'best_player_search':
-        for nationality_id in additional_settings['teamids']:
+        for nationality_id in teams_to_download:
             additional_settings['nation'] = nationality_id
             player_df.append(player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), additional_columns=database_settings['additional_columns'], ind_level=ind_level+1))
     elif database_settings['database_type'] == 'transfer_market_search':

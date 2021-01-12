@@ -210,10 +210,42 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
 
     return team_players
 
+def get_team_page(teamid, use_browser=False):
+    global browser
+    if use_browser:
+        browser = use_browser
+    check_login()
 
-def get_player_wage(player_id, page=False, normalize_wage=False):
+    browser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
+    page = str(browser.parsed)
+
+    return page
+
+def get_team_country(teamid, return_type='regionid', page=False, use_browser=False):
     if not page:
-        page = get_player_page(player_id)
+        global browser
+        if use_browser:
+            browser = use_browser
+        check_login()
+
+        page = get_team_page(teamid, use_browser=use_browser)
+
+    truncated_page = page[page.index('<th>Country</th>'):][:200]
+    country_id = int(''.join([x for x in re.findall('regionId=[0-9]+', truncated_page)[0] if x.isdigit()]))
+
+    if return_type == 'regionid':
+        return country_id
+    elif return_type == 'name':
+        return nationality_id_to_name_str(country_id, True)
+
+def get_player_wage(player_id, page=False, normalize_wage=False, use_browser=browser):
+    if not page:
+        global browser
+        if use_browser:
+            browser = use_browser
+        check_login()
+
+        page = get_player_page(player_id, use_browser=browser)
 
     player_discounted_wage = int(''.join([x for x in re.findall('[0-9]+,[0-9]+ wage' if bool(re.search('[0-9]+,[0-9]+ wage', page)) else '[0-9]+ wage', page)[0] if x.isdigit()]))
     try:
@@ -227,25 +259,40 @@ def get_player_wage(player_id, page=False, normalize_wage=False):
     else:
         return player_discounted_wage
 
-def get_player_teamid(player_id, page=False):
+def get_player_teamid(player_id, page=False, use_browser=False):
     if not page:
-        page = get_player_page(player_id)
+        global browser
+        if use_browser:
+            browser = use_browser
+        check_login()
+
+        page = get_player_page(player_id, use_browser=use_browser)
 
     team_id = re.findall('teamId=[0-9]+', page)[-2]
 
     return team_id
 
-def get_player_nationality(player_id, page=False):
+def get_player_nationality(player_id, page=False, use_browser=False):
     if not page:
-        page = get_player_page(player_id)
+        global browser
+        if use_browser:
+            browser = use_browser
+        check_login()
+
+        page = get_player_page(player_id, use_browser=use_browser)
 
     player_nationality_id = re.findall('regionId=[0-9]+', page)[-1][9:]
 
     return player_nationality_id
 
 
-def get_player_skillshifts(player_id, page=False):
+def get_player_skillshifts(player_id, page=False, use_browser=False):
     if not page:
+        global browser
+        if use_browser:
+            browser = use_browser
+        check_login()
+
         page = get_player_page(player_id)
 
     skill_names = ['Experience', 'Captaincy', 'Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
@@ -267,9 +314,14 @@ def get_player_skillshifts(player_id, page=False):
     return skillshifts
 
 
-def get_player_summary(player_id, page=False):
+def get_player_summary(player_id, page=False, use_browser=False):
     if not page:
-        page = get_player_page(player_id)
+        global browser
+        if use_browser:
+            browser = use_browser
+        check_login()
+
+        page = get_player_page(player_id, use_browser=use_browser)
 
     summary_names = ['BattingSum', 'BowlingSum', 'KeepingSum', 'AllrounderSum']
     skills = re.findall('class="skills".{0,200}', page)
