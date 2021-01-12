@@ -1,27 +1,19 @@
 import FTPUtils
 import PlayerDatabase
 
-import os
-import time
-import datetime
-import re
 import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
-from robobrowser import RoboBrowser
 import pandas as pd
-import shutil
 import numpy as np
 import matplotlib
-#matplotlib.use('Agg')
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
 import mplcursors
-from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
-browser = False
+browser = None
 
 def youth_pull_league_round_overview(leagueid, normalize_age=False, league_format='league', round_n='latest', ind_level=0, weeks_since_game='default', use_browser=False):
     global browser

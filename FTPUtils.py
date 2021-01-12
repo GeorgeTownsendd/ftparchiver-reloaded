@@ -1,27 +1,21 @@
 import PlayerDatabase
 import PresentData
 
-import os
-import time
 import datetime
 import re
 import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
 from robobrowser import RoboBrowser
 import pandas as pd
-import shutil
 import numpy as np
 import matplotlib
-#matplotlib.use('Agg')
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
-import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
-import mplcursors
 from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
-browser = False
+browser = None
 SKILL_LEVELS = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
 
 def log_event(logtext, logtype='full', logfile='default', ind_level=0):
@@ -41,19 +35,14 @@ def log_event(logtext, logtype='full', logfile='default', ind_level=0):
         logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
 
 
-def check_login(use_browser=False, return_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-
+def check_login(browser=browser, return_type='browser'):
+    loaded_page = ''
     if isinstance(browser, type(None)):
-        with open('credentials.txt', 'r') as f:
-            credentials = f.readline().split(',')
-        browser = login(credentials)
-        if return_browser:
-            return browser
-        else:
-            return True
+        if return_type == 'browser':
+            with open('credentials.txt', 'r') as f:
+                credentials = f.readline().split(',')
+            browser = login(credentials)
+            loaded_page = str(browser.parsed)
     else:
         last_page_load = datetime.datetime.strptime(str(browser.response.headers['Date'])[:-4]+'+0000', '%a, %d %b %Y %H:%M:%S%z')
         if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) > datetime.timedelta(minutes=10):
@@ -61,22 +50,23 @@ def check_login(use_browser=False, return_browser=False):
             with open('credentials.txt', 'r') as f:
                 credentials = f.readline().split(',')
             browser = login(credentials)
-            browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-            if return_browser:
-                return browser
-            else:
-                return True
+            loaded_page = str(browser.parsed)
         else:
-            if return_browser:
-                return browser
-            else:
-                return True
+            browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
+            loaded_page = str(browser.parsed)
 
-def login(credentials, logtype='full', logfile='default', use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
+    if 'transfer.htm' in loaded_page:
+        if return_type == 'browser':
+            return browser
+        elif return_type == 'bool':
+            return True
+    else:
+        if return_type == 'browser':
+            return None
+        elif return_type == 'bool':
+            return False
 
+def login(credentials, logtype='full', logfile='default'):
     browser = RoboBrowser(history=True)
     browser.open('http://www.fromthepavilion.org/')
     form = browser.get_form(action='securityCheck.htm')
@@ -85,7 +75,7 @@ def login(credentials, logtype='full', logfile='default', use_browser=False):
     form['j_password'] = credentials[1]
 
     browser.submit_form(form)
-    if check_login(browser, return_browser=False):
+    if check_login(browser, return_type='bool'):
         logtext = 'Successfully logged in as user {}.'.format(credentials[0])
         log_event(logtext, logtype=logtype, logfile=logfile)
         return browser

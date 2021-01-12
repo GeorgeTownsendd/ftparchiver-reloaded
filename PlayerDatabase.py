@@ -9,18 +9,12 @@ import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
 import pandas as pd
 import shutil
-import numpy as np
-import matplotlib
-#matplotlib.use('Agg')
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
-import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
-import mplcursors
-from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
-browser = False
+browser = None
 
 GLOBAL_SETTINGS = ['name', 'description', 'database_type', 'w_directory', 'archive_days', 'scrape_time', 'additional_columns']
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
