@@ -1,6 +1,7 @@
 import PlayerDatabase
 import PresentData
 
+import os
 import datetime
 import re
 import werkzeug
@@ -35,7 +36,7 @@ def log_event(logtext, logtype='full', logfile='default', ind_level=0):
         logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
 
 
-def check_login(browser=browser, return_type='browser'):
+def check_login(browser=browser, return_type='browser', log_result=False):
     loaded_page = ''
     if isinstance(browser, type(None)):
         if return_type == 'browser':
@@ -56,11 +57,17 @@ def check_login(browser=browser, return_type='browser'):
             loaded_page = str(browser.parsed)
 
     if 'transfer.htm' in loaded_page:
+        if log_result:
+            log_event('Login Check: Success')
+
         if return_type == 'browser':
             return browser
         elif return_type == 'bool':
             return True
     else:
+        if log_result:
+            log_event('Login Check: Fail')
+
         if return_type == 'browser':
             return None
         elif return_type == 'bool':
@@ -135,7 +142,7 @@ def get_player_spare_ratings(player_df, col_name_len='full'):
 
     return player_df['Rating'] - skill_rating_sum
 
-def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, ind_level=0, browser=browser):
+def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, overwrite_method='append', ind_level=0, browser=browser):
     if not check_login(browser, return_type='bool'):
         browser = check_login(browser, return_type='browser')
 
@@ -192,7 +199,17 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
     team_players.drop(columns=[x for x in ['#', 'Unnamed: 18'] if x in team_players.columns], inplace=True)
 
     if to_file:
-        pd.DataFrame.to_csv(team_players, to_file, index=False, float_format='%.2f')
+        if os.path.exists(to_file):
+            old_file = pd.read_csv(to_file, float_precision=2)
+        else:
+            old_file = pd.DataFrame()
+        if overwrite_method == 'append':
+            file_data = pd.concat([old_file, team_players])
+            file_data = file_data.sort_values(['PlayerID', 'Rating'], ascending=True).drop_duplicates(['PlayerID', 'Rating'], keep='first')
+        elif overwrite_method == 'overwrite':
+            file_data = team_players
+
+        pd.DataFrame.to_csv(file_data, to_file, index=False, float_format='%.2f')
 
     return team_players
 
@@ -205,9 +222,20 @@ def get_team_page(teamid, browser=browser):
 
     return page
 
-def get_team_country(teamid, return_type='regionid', page=False, browser=browser):
-    if not check_login(browser, return_type='bool'):
-        browser = check_login(browser, return_type='browser')
+def get_team_region(teamid, return_type='regionid', page=False, browser=browser):
+    if not page:
+        if not check_login(browser, return_type='bool'):
+            browser = check_login(browser, return_type='browser')
+
+        browser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
+        page = str(browser.parsed)
+
+    country_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18]
+    senior_country_ids = [id + 3000 for id in country_ids]
+    youth_country_ids = [id + 3020 for id in country_ids]
+
+    if teamid in senior_country_ids + youth_country_ids:
+        return teamid
 
     truncated_page = page[page.index('<th>Country</th>'):][:200]
     country_id = int(''.join([x for x in re.findall('regionId=[0-9]+', truncated_page)[0] if x.isdigit()]))
@@ -216,6 +244,16 @@ def get_team_country(teamid, return_type='regionid', page=False, browser=browser
         return country_id
     elif return_type == 'name':
         return nationality_id_to_name_str(country_id, True)
+
+def country_game_start_time(region_id):
+    region_names = ['Australia', 'England', 'India', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies', 'Sri Lanka', 'Bangladesh', 'Zimbabwe', 'Canada', 'Scotland', 'Ireland', 'Netherlands']
+    country_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18]
+    region_starttimes = ['00:00', '10:00', '04:30', '22:00', '05:00', '08:00', '15:00', '05:30', '02:00', '13:00', '16:00', '09:00', '11:30', '12:00']
+
+    if isinstance(type(region_id), type(int)):
+        return region_starttimes[country_ids.index(region_id)]
+    elif isinstance(type(region_id), type(str)):
+        return region_starttimes[region_names.index(region_id)]
 
 def get_player_wage(player_id, page=False, normalize_wage=False, browser=browser):
     if not page:
