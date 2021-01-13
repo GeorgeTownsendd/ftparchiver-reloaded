@@ -2,7 +2,7 @@ import PlayerDatabase
 import PresentData
 import CoreUtils
 
-browser = CoreUtils.browser.browser
+browser = CoreUtils.browser
 
 import os
 import re
@@ -50,8 +50,8 @@ def skill_word_to_index(skill_w, skill_word_type='full'):
 
 
 def get_player_page(player_id):
-    browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
-    page = str(browser.parsed)
+    browser.rbrowser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
+    page = str(browser.rbrowser.parsed)
 
     return page
 
@@ -84,8 +84,8 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
         squad_url = 'https://www.fromthepavilion.org/natsquad.htm?squadViewId=2&orderBy=15&teamId={}&playerType={}'
 
     squad_url = squad_url.format(teamid, age_group)
-    browser.open(squad_url)
-    page_tmp = str(browser.parsed)
+    browser.rbrowser.open(squad_url)
+    page_tmp = str(browser.rbrowser.parsed)
     page_tmp = page_tmp[page_tmp.index('middle-noright'):]
     team_name = page_tmp[page_tmp.index('teamId={}">'.format(teamid)):page_tmp.index('teamId={}">'.format(teamid))+30]
     team_name = team_name.split('>')[1].split('<')[0]
@@ -95,8 +95,8 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
 
     try:
         CoreUtils.log_event('Downloading players from teamid {}'.format(teamid, squad_url), ind_level=ind_level)
-        team_players = pd.read_html(str(browser.parsed))[0]
-        playerids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+        team_players = pd.read_html(str(browser.rbrowser.parsed))[0]
+        playerids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
     except ValueError:
         CoreUtils.log_event('Error saving teamid: {}. No dataframe found in url'.format(teamid), ind_level=ind_level)
         raise ValueError
@@ -107,7 +107,7 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
     team_players['Wage'] = team_players['Wage'].str.replace('\D+', '')
 
     if squad_type == 'domestic_team':
-        player_nationalities = [x[-2:].replace('=', '') for x in re.findall('regionId=[0-9]+', str(browser.parsed))][-len(playerids):]
+        player_nationalities = [x[-2:].replace('=', '') for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][-len(playerids):]
         team_players['Nat'] = player_nationalities
 
         #CoreUtils.log_event('Saved {} players to {}'.format(len(playerids), to_file), ind_level=1)
@@ -136,15 +136,15 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
     return team_players
 
 def get_team_page(teamid):
-    browser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
-    page = str(browser.parsed)
+    browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
+    page = str(browser.rbrowser.parsed)
 
     return page
 
 def get_team_region(teamid, return_type='regionid', page=False):
     if not page:
-        browser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
-        page = str(browser.parsed)
+        browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
+        page = str(browser.rbrowser.parsed)
 
     country_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18]
     senior_country_ids = [id + 3000 for id in country_ids]
@@ -274,8 +274,8 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league'):
         round_n = 1
 
     if league_format == 'league':
-        browser.open('https://www.fromthepavilion.org/leaguefixtures.htm?lsId={}'.format(leagueid))
-        league_page = str(browser.parsed)
+        browser.rbrowser.open('https://www.fromthepavilion.org/leaguefixtures.htm?lsId={}'.format(leagueid))
+        league_page = str(browser.rbrowser.parsed)
         league_rounds = int(max([int(r[6:]) for r in re.findall('Round [0-9]+', league_page)]))
         gameids = [g[7:] for g in re.findall('gameId=[0-9]+', league_page)]
 
@@ -292,14 +292,14 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league'):
         return unique_gameids[round_start_ind:round_end_ind]
 
     elif league_format == 'knockout':
-        browser.open('https://www.fromthepavilion.org/cupfixtures.htm?cupId={}&currentRound=true'.format(leagueid))
-        fixtures = pd.read_html(str(browser.parsed))[0]
+        browser.rbrowser.open('https://www.fromthepavilion.org/cupfixtures.htm?cupId={}&currentRound=true'.format(leagueid))
+        fixtures = pd.read_html(str(browser.rbrowser.parsed))[0]
         for n, roundname in enumerate(fixtures.columns):
             if roundname[:7] == 'Round {}'.format(round_n):
                 round_column_name = roundname
                 break
 
-        games_on_page = re.findall('gameId=.{0,150}', str(browser.parsed))
+        games_on_page = re.findall('gameId=.{0,150}', str(browser.rbrowser.parsed))
         requested_games = []
         for game in fixtures[round_column_name][::2 ** (round_n - 1)]:
             team1, team2 = game.split('vs')
@@ -322,9 +322,9 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league'):
 
 
 def get_game_scorecard_table(gameid, ind_level=0):
-    browser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
-    scorecard_tables = pd.read_html(str(browser.parsed))
-    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
+    browser.rbrowser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
+    scorecard_tables = pd.read_html(str(browser.rbrowser.parsed))
+    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.rbrowser.parsed))]
     home_team_id, away_team_id = page_teamids[21], page_teamids[22]
     scorecard_tables[-2].iloc[0][1] = home_team_id
     scorecard_tables[-2].iloc[1][1] = away_team_id
@@ -335,8 +335,8 @@ def get_game_scorecard_table(gameid, ind_level=0):
 
 
 def get_game_teamids(gameid, ind_level=0):
-    browser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
-    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
+    browser.rbrowser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
+    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.rbrowser.parsed))]
     home_team_id, away_team_id = page_teamids[22], page_teamids[23]
 
     CoreUtils.log_event('Found teams for game {} - {} vs {}'.format(gameid, home_team_id, away_team_id), ind_level=ind_level)

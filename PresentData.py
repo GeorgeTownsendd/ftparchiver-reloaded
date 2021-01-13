@@ -2,7 +2,7 @@ import FTPUtils
 import PlayerDatabase
 import CoreUtils
 
-browser = CoreUtils.browser.browser
+browser = CoreUtils.browser
 
 import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
@@ -17,7 +17,7 @@ import mplcursors
 pd.options.mode.chained_assignment = None  # default='warn'
 
 def youth_pull_league_round_overview(leagueid, normalize_age=False, league_format='league', round_n='latest', ind_level=0, weeks_since_game='default', browser=browser):
-    requested_games = FTPUtils.get_league_gameids(leagueid, league_format=league_format, round_n=round_n, use_browser=browser)
+    requested_games = FTPUtils.get_league_gameids(leagueid, league_format=league_format, round_n=round_n)
     browser.open('https://www.fromthepavilion.org/commentary.htm?gameId={}'.format(requested_games[0]))
     if weeks_since_game == 'default':
         player_match_age = FTPUtils.normalize_age_list(['16.00'])[0]

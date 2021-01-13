@@ -2,7 +2,7 @@ import FTPUtils
 import PresentData
 import CoreUtils
 
-browser = CoreUtils.browser.browser
+browser = CoreUtils.browser
 
 import os
 import time
@@ -17,8 +17,6 @@ from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
 import seaborn as sns; sns.set_theme(color_codes=True)
 pd.options.mode.chained_assignment = None  # default='warn'
-
-browser = None
 
 GLOBAL_SETTINGS = ['name', 'description', 'database_type', 'w_directory', 'archive_days', 'scrape_time', 'additional_columns']
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
@@ -97,20 +95,20 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
         else:
             CoreUtils.log_event('Invalid search_type in player_search! - {}'.format(search_type))
 
-        browser.open(url)
-        search_settings_form = browser.get_form()
+        browser.rbrowser.open(url)
+        search_settings_form = browser.rbrowser.get_form()
 
         for setting in search_settings.keys():
             search_settings_form[setting] = str(search_settings[setting])
 
 
-        browser.submit_form(search_settings_form)
-        players_df = pd.read_html(str(browser.parsed))[0]
+        browser.rbrowser.submit_form(search_settings_form)
+        players_df = pd.read_html(str(browser.rbrowser.parsed))[0]
 
     if search_type == 'transfer_market':
         del players_df['Nat']
-        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
-        region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.parsed))][9:]
+        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
+        region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][9:]
         players_df.insert(loc=3, column='Nat', value=region_ids)
         players_df.insert(loc=1, column='PlayerID', value=player_ids)
         players_df['Deadline'] = [deadline[:-5] + ' ' + deadline[-5:] for deadline in players_df['Deadline']]
@@ -124,15 +122,15 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
 
     elif search_type == 'nat_search':
         del players_df['Unnamed: 13']
-        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
         players_df.insert(loc=1, column='PlayerID', value=player_ids)
 
     elif search_type == 'all':
         if 'pages' not in search_settings.keys():
             search_settings['pages'] = 1
 
-        browser.open('https://www.fromthepavilion.org/playerranks.htm?regionId=1')
-        search_settings_form = browser.get_forms()[0]
+        browser.rbrowser.open('https://www.fromthepavilion.org/playerranks.htm?regionId=1')
+        search_settings_form = browser.rbrowser.get_forms()[0]
 
         for search_setting in ['nation', 'region', 'age', 'wagesort']:
             if search_setting in search_settings.keys():
@@ -152,13 +150,13 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
         CoreUtils.log_event('Searching for best players with parameters {}'.format(search_settings), ind_level=ind_level)
         for page in range(int(search_settings['pages'])):
             search_settings_form['page'].value = str(page)
-            browser.submit_form(search_settings_form)
+            browser.rbrowser.submit_form(search_settings_form)
 
-            pageplayers_df = pd.read_html(str(browser.parsed))[1]
+            pageplayers_df = pd.read_html(str(browser.rbrowser.parsed))[1]
             players_df = players_df.append(pageplayers_df)
 
-            page_player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
-            page_region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.parsed))][20:]
+            page_player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
+            page_region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][20:]
 
             player_ids += page_player_ids
             region_ids += page_region_ids
@@ -207,8 +205,8 @@ def download_database(config_file_directory, download_teams_whitelist=False, age
             teams_to_download = additional_settings['teamids']
         CoreUtils.log_event('Downloading database {}'.format(config_file_directory.split('/')[-1]), ind_level=ind_level)
 
-    browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-    timestr = re.findall('Week [0-9]+, Season [0-9]+', str(browser.parsed))[0]
+    browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
+    timestr = re.findall('Week [0-9]+, Season [0-9]+', str(browser.rbrowser.parsed))[0]
     week, season = timestr.split(',')[0].split(' ')[-1], timestr.split(',')[1].split(' ')[-1]
 
     if database_settings['database_type'] != 'transfer_market_search':
@@ -270,9 +268,6 @@ def transfer_saved_until(database_name):
     return saved_until_time
 
 def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0):
-    if column_types != ['SpareRat']: #no need to log in
-        if not FTPUtils.check_login(browser, return_type='bool'):
-            browser = FTPUtils.check_login(browser, return_type='browser')
     CoreUtils.log_event('Creating additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
 
     all_player_data = []
@@ -280,8 +275,8 @@ def add_player_columns(player_df, column_types, normalize_wages=True, returnsort
     for player_id in player_df['PlayerID']:
         player_data = []
         if 'Training' in column_types:
-            browser.open('https://www.fromthepavilion.org/playerpopup.htm?playerId={}'.format(player_id))
-            popup_page_info = pd.read_html(str(browser.parsed))
+            browser.rbrowser.open('https://www.fromthepavilion.org/playerpopup.htm?playerId={}'.format(player_id))
+            popup_page_info = pd.read_html(str(browser.rbrowser.parsed))
             try:
                 training_selection = popup_page_info[0][3][9]
             except KeyError: #player training not visible to manager
@@ -289,8 +284,8 @@ def add_player_columns(player_df, column_types, normalize_wages=True, returnsort
                 hidden_training_n += 1
 
         if column_types != ['Training'] and column_types != ['SpareRat']:
-            browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
-            player_page = str(browser.parsed)
+            browser.rbrowser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
+            player_page = str(browser.rbrowser.parsed)
 
         for column_name in column_types:
             if column_name == 'Training':

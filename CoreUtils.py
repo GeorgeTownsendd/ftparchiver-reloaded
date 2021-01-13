@@ -7,7 +7,7 @@ browser = None
 
 class FTPBrowser:
     def __init__(self):
-        self.browser = RoboBrowser()
+        self.rbrowser = RoboBrowser()
         self.login()
 
     def login(self, max_attempts=3, logtype='full', logfile='default'):
@@ -16,13 +16,13 @@ class FTPBrowser:
 
         attempts = 0
         while attempts <= max_attempts:
-            self.browser.open(url='http://www.fromthepavilion.org/')
-            form = self.browser.get_form(action='securityCheck.htm')
+            self.rbrowser.open(url='http://www.fromthepavilion.org/')
+            form = self.rbrowser.get_form(action='securityCheck.htm')
 
             form['j_username'] = credentials[0]
             form['j_password'] = credentials[1]
 
-            self.browser.submit_form(form)
+            self.rbrowser.submit_form(form)
             if self.check_login():
                 logtext = 'Successfully logged in as user {}.'.format(credentials[0])
                 log_event(logtext, logtype=logtype, logfile=logfile)
@@ -33,14 +33,14 @@ class FTPBrowser:
             attempts += 1
 
     def check_login(self, login_on_failure=True):
-        if isinstance(self.browser, type(None)):
+        if isinstance(self.rbrowser, type(None)):
             if login_on_failure:
                 self.login()
             else:
                 return False
         else:
-            last_page_load = datetime.datetime.strptime(str(self.browser.response.headers['Date'])[:-4] + '+0000', '%a, %d %b %Y %H:%M:%S%z')
-            last_page = str(self.browser.parsed)
+            last_page_load = datetime.datetime.strptime(str(self.rbrowser.response.headers['Date'])[:-4] + '+0000', '%a, %d %b %Y %H:%M:%S%z')
+            last_page = str(self.rbrowser.parsed)
             if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) < datetime.timedelta(minutes=10) and 'logout.htm' in last_page:
                 return True
             else:
