@@ -1,5 +1,8 @@
 import FTPUtils
 import PlayerDatabase
+import CoreUtils
+
+browser = CoreUtils.browser.browser
 
 import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
@@ -13,12 +16,7 @@ import seaborn as sns; sns.set_theme(color_codes=True)
 import mplcursors
 pd.options.mode.chained_assignment = None  # default='warn'
 
-browser = None
-
 def youth_pull_league_round_overview(leagueid, normalize_age=False, league_format='league', round_n='latest', ind_level=0, weeks_since_game='default', browser=browser):
-    if not FTPUtils.check_login(browser, return_type='bool'):
-        browser = FTPUtils.check_login(browser, return_type='browser')
-
     requested_games = FTPUtils.get_league_gameids(leagueid, league_format=league_format, round_n=round_n, use_browser=browser)
     browser.open('https://www.fromthepavilion.org/commentary.htm?gameId={}'.format(requested_games[0]))
     if weeks_since_game == 'default':
