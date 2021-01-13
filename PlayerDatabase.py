@@ -82,11 +82,9 @@ def load_config_file(config_file_directory):
     return database_settings, additional_settings
 
 
-def player_search(search_settings={}, to_file=False, search_type='transfer_market', normalize_age=False, additional_columns=False, return_sort_column=False, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = FTPUtils.check_login(browser, return_browser=True)
+def player_search(search_settings={}, to_file=False, search_type='transfer_market', normalize_age=False, additional_columns=False, return_sort_column=False, ind_level=0, browser=browser):
+    if not FTPUtils.check_login(browser, return_type='bool'):
+        browser = FTPUtils.check_login(browser, return_type='browser')
 
     if search_type != 'all':
         FTPUtils.log_event('Searching {} for players with parameters {}'.format(search_type, search_settings), ind_level=ind_level)
@@ -175,7 +173,7 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
         players_df['Age'] = FTPUtils.normalize_age_list(players_df['Age'])
 
     if additional_columns:
-        players_df = add_player_columns(players_df, additional_columns, ind_level=ind_level+1, use_browser=browser)
+        players_df = add_player_columns(players_df, additional_columns, ind_level=ind_level+1, browser=browser)
         sorted_columns = ['Player', 'PlayerID', 'Age', 'NatSquad', 'Touring', 'Wage', 'Rating','BT', 'End', 'Bat', 'Bowl', 'Tech', 'Pow', 'Keep', 'Field', 'Exp', 'Talents', 'SpareRat']
         sorted_columns = sorted_columns + [c for c in list(players_df.columns) if c not in sorted_columns]
         players_df = players_df.reindex(columns=sorted_columns)
@@ -191,11 +189,9 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
     return players_df
 
 
-def download_database(config_file_directory, download_teams_whitelist=False, preserve_exisiting=False, return_next_runtime=False, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = FTPUtils.check_login(browser, return_browser=True)
+def download_database(config_file_directory, download_teams_whitelist=False, preserve_exisiting=False, return_next_runtime=False, ind_level=0, browser=browser):
+    if not FTPUtils.check_login(browser, return_type='bool'):
+        browser = FTPUtils.check_login(browser, return_type='browser')
 
     if '/' not in config_file_directory:
         config_file_directory = config_file_directory + '/' + config_file_directory + '.config'
@@ -234,7 +230,7 @@ def download_database(config_file_directory, download_teams_whitelist=False, pre
             additional_settings['nation'] = nationality_id
             player_df.append(player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), additional_columns=database_settings['additional_columns'], ind_level=ind_level+1))
     elif database_settings['database_type'] == 'transfer_market_search':
-        player_df = player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1, use_browser=browser)
+        player_df = player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1, browser=browser)
         player_df.to_csv(database_settings['w_directory'] + '/s{}/w{}/{}.csv'.format(season, week, player_df['Deadline'][0] + ' - ' + player_df['Deadline'][len(player_df['Deadline'])-1]))
 
     #FTPUtils.log_event('Successfully saved {} players from database {}'.format(len(player_df.PlayerID), database_settings['name']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
@@ -265,12 +261,10 @@ def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0)
         FTPUtils.log_event('Error loading database entry (file not found): {}'.format(data_file), logtype='full', logfile=log_files, ind_level=ind_level)
 
 
-def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0, use_browser=False):
+def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0, browser=browser):
     if column_types != ['SpareRat']: #no need to log in
-        global browser
-        if use_browser:
-            browser = use_browser
-        browser = FTPUtils.check_login(browser, return_browser=True)
+        if not FTPUtils.check_login(browser, return_type='bool'):
+            browser = FTPUtils.check_login(browser, return_type='browser')
     FTPUtils.log_event('Creating additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
 
 
@@ -423,11 +417,9 @@ def next_run_time(db_config_file):
         return weekly_runtimes[0] + datetime.timedelta(days=7)
 
 
-def watch_database_list(database_list, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = FTPUtils.check_login(browser, return_browser=True)
+def watch_database_list(database_list, ind_level=0, browser=browser):
+    if not FTPUtils.check_login(browser, return_type='bool'):
+        browser = FTPUtils.check_login(browser, return_type='browser')
 
     loaded_database_dict = {}
     database_stack = []
@@ -455,7 +447,7 @@ def watch_database_list(database_list, ind_level=0, use_browser=False):
 
         while current_attempt <= attempts_before_exiting:
             try:
-                db_next_runtime = download_database(database_stack[0][0], return_next_runtime=True, use_browser=browser)
+                db_next_runtime = download_database(database_stack[0][0], return_next_runtime=True, browser=browser)
                 if current_attempt > 0:
                     FTPUtils.log_event('Completed successfully after {} failed attempts'.format(current_attempt), ind_level=ind_level)
                 break

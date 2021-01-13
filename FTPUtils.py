@@ -114,11 +114,9 @@ def skill_word_to_index(skill_w, skill_word_type='full'):
     return skill_n
 
 
-def get_player_page(player_id, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
+def get_player_page(player_id, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
     page = str(browser.parsed)
@@ -137,11 +135,9 @@ def get_player_spare_ratings(player_df, col_name_len='full'):
 
     return player_df['Rating'] - skill_rating_sum
 
-def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
+def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, ind_level=0, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     if int(teamid) in range(3001, 3019) or int(teamid) in range(3021, 3039) and squad_type == 'domestic_team':
         squad_type = 'national_team'
@@ -200,25 +196,18 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
 
     return team_players
 
-def get_team_page(teamid, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    check_login()
+def get_team_page(teamid, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     browser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
     page = str(browser.parsed)
 
     return page
 
-def get_team_country(teamid, return_type='regionid', page=False, use_browser=False):
-    if not page:
-        global browser
-        if use_browser:
-            browser = use_browser
-        check_login()
-
-        page = get_team_page(teamid, use_browser=use_browser)
+def get_team_country(teamid, return_type='regionid', page=False, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     truncated_page = page[page.index('<th>Country</th>'):][:200]
     country_id = int(''.join([x for x in re.findall('regionId=[0-9]+', truncated_page)[0] if x.isdigit()]))
@@ -228,14 +217,12 @@ def get_team_country(teamid, return_type='regionid', page=False, use_browser=Fal
     elif return_type == 'name':
         return nationality_id_to_name_str(country_id, True)
 
-def get_player_wage(player_id, page=False, normalize_wage=False, use_browser=browser):
+def get_player_wage(player_id, page=False, normalize_wage=False, browser=browser):
     if not page:
-        global browser
-        if use_browser:
-            browser = use_browser
-        check_login()
+        if not check_login(browser, return_type='bool'):
+            browser = check_login(browser, return_type='browser')
 
-        page = get_player_page(player_id, use_browser=browser)
+        page = get_player_page(player_id, browser=browser)
 
     player_discounted_wage = int(''.join([x for x in re.findall('[0-9]+,[0-9]+ wage' if bool(re.search('[0-9]+,[0-9]+ wage', page)) else '[0-9]+ wage', page)[0] if x.isdigit()]))
     try:
@@ -249,41 +236,35 @@ def get_player_wage(player_id, page=False, normalize_wage=False, use_browser=bro
     else:
         return player_discounted_wage
 
-def get_player_teamid(player_id, page=False, use_browser=False):
+def get_player_teamid(player_id, page=False, browser=browser):
     if not page:
-        global browser
-        if use_browser:
-            browser = use_browser
-        check_login()
+        if not check_login(browser, return_type='bool'):
+            browser = check_login(browser, return_type='browser')
 
-        page = get_player_page(player_id, use_browser=use_browser)
+        page = get_player_page(player_id, browser=browser)
 
     team_id = re.findall('teamId=[0-9]+', page)[-2]
 
     return team_id
 
-def get_player_nationality(player_id, page=False, use_browser=False):
+def get_player_nationality(player_id, page=False, browser=browser):
     if not page:
-        global browser
-        if use_browser:
-            browser = use_browser
-        check_login()
+        if not check_login(browser, return_type='bool'):
+            browser = check_login(browser, return_type='browser')
 
-        page = get_player_page(player_id, use_browser=use_browser)
+        page = get_player_page(player_id, browser=browser)
 
     player_nationality_id = re.findall('regionId=[0-9]+', page)[-1][9:]
 
     return player_nationality_id
 
 
-def get_player_skillshifts(player_id, page=False, use_browser=False):
+def get_player_skillshifts(player_id, page=False, browser=browser):
     if not page:
-        global browser
-        if use_browser:
-            browser = use_browser
-        check_login()
+        if not check_login(browser, return_type='bool'):
+            browser = check_login(browser, return_type='browser')
 
-        page = get_player_page(player_id)
+        page = get_player_page(player_id, browser=browser)
 
     skill_names = ['Experience', 'Captaincy', 'Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
     skills = re.findall('class="skills".{0,200}', page)
@@ -304,14 +285,12 @@ def get_player_skillshifts(player_id, page=False, use_browser=False):
     return skillshifts
 
 
-def get_player_summary(player_id, page=False, use_browser=False):
+def get_player_summary(player_id, page=False, browser=browser):
     if not page:
-        global browser
-        if use_browser:
-            browser = use_browser
-        check_login()
+        if not check_login(browser, return_type='bool'):
+            browser = check_login(browser, return_type='browser')
 
-        page = get_player_page(player_id, use_browser=use_browser)
+        page = get_player_page(player_id, browser=browser)
 
     summary_names = ['BattingSum', 'BowlingSum', 'KeepingSum', 'AllrounderSum']
     skills = re.findall('class="skills".{0,200}', page)
@@ -329,10 +308,9 @@ def get_player_summary(player_id, page=False, use_browser=False):
     return summary_dir
 
 
-def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = check_login(browser, return_browser=True)
+def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     if league_format == 'knockout':
         if not isinstance(knockout_round, None):
@@ -355,11 +333,9 @@ def get_league_teamids(leagueid, league_format='league', knockout_round=None, in
     return teamids
 
 
-def get_league_gameids(leagueid, round_n='latest', league_format='league', use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
+def get_league_gameids(leagueid, round_n='latest', league_format='league', browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     if round_n == 'latest':
         round_n = 1
@@ -412,11 +388,9 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league', use_b
 
 
 
-def get_game_scorecard_table(gameid, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
+def get_game_scorecard_table(gameid, ind_level=0, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     browser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
     scorecard_tables = pd.read_html(str(browser.parsed))
@@ -430,11 +404,9 @@ def get_game_scorecard_table(gameid, ind_level=0, use_browser=False):
     return scorecard_tables
 
 
-def get_game_teamids(gameid, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
+def get_game_teamids(gameid, ind_level=0, browser=browser):
+    if not check_login(browser, return_type='bool'):
+        browser = check_login(browser, return_type='browser')
 
     browser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
     page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
