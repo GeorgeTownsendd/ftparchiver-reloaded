@@ -349,8 +349,13 @@ def match_pg_ids(pg1, pg2, returnsortcolumn='Player'):
     pg1_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
     pg2_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
 
-    add_columns = ['Ratdif', 'Wagedif', 'SkillShift']
+    add_columns = ['Ratdif', 'Wagedif']
+    #if 'Bat' in pg2_shared.columns or 'Batting' in pg2_shared.columns:
+    #    add_columns.append('SkillShift')
+
     pg2_shared = calculate_additional_columns(pg1_shared, pg2_shared, add_columns)
+    for c in add_columns:
+        pg1_shared[c] = pg2_shared[c]
 
     pg1_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
     pg2_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
@@ -372,11 +377,70 @@ def calculate_additional_columns(pg1, pg2, columns):
 
     return pg2
 
+def database_entries_from_directory(directory='working_directory'):
+    if directory == 'working_directory':
+        directory = os.getcwd()
+
+    local_directories = os.listdir(directory)
+    database_names = []
+    for sub_dir in local_directories:
+        path = '{}/{}'.format(directory, sub_dir)
+        if os.path.isdir(path):
+            sub_files = os.listdir(path)
+            for file in sub_files:
+                if '.config' in file:
+                    dbname = file.split('.')[0]
+                    config_data = load_config_file(dbname)
+                    if 'teamids' in config_data[1].keys():
+                        database_names.append(dbname)
+
+    database_entries = {}
+
+    for dbname in database_names:
+        seasons = [season_folder for season_folder in os.listdir(dbname + '/') if re.match('s[0-9]+', season_folder)]
+        season_weeks = {season_folder: [week_folder for week_folder in os.listdir('{}/{}/'.format(dbname, season_folder)) if re.match('w[0-9]+', week_folder)] for season_folder in seasons}
+        database_entries[dbname] = season_weeks
+
+    return database_entries
+
+
+def track_player_training(playerid, database_config_file):
+    database_config = load_config_file(database_config_file)
+    player_data_by_season = {season : {} for season in os.listdir(database_config[0]['w_directory']) if bool(re.match('^.*s[0-9]+.*$', season))}
+    lastweek = None
+
+    for season in player_data_by_season.keys():
+        season_directory = database_config[0]['w_directory'] + season + '/'
+        for week in os.listdir(season_directory):
+            week_directory = season_directory + week + '/'
+            for teamid in [x for x in os.listdir(week_directory) if x[-4:] == '.csv']:
+                team_data = load_entry(database_config[0]['w_directory'], ''.join([x for x in season if x.isdigit()]), ''.join([x for x in week if x.isdigit()]), ''.join([x for x in teamid if x.isdigit()]))
+                player_data_week = team_data[team_data['PlayerID'] == playerid]
+                if not player_data_week.empty:
+                    player_data_week = player_data_week.iloc[0]
+                    column_names = [t for t in player_data_week.axes[0].values]
+                    if 'Bat' in column_names and 'Training' in column_names:
+                        if not isinstance(lastweek, type(None)):# and 'SkillShift' not in column_names:
+                            trained_skill_list = calculate_player_skillshifts(lastweek, player_data_week)
+                            trained_skills = '-'.join(trained_skill_list)
+                            if trained_skills != '':
+                                player_data_week['SkillShift'] = trained_skills
+
+                            player_data_week['Ratdif'] = player_data_week['Rating'] - lastweek['Rating']
+                        else:
+                            player_data_week['Ratdif'] = '???'
+                        player_data_week['SpareRat'] = FTPUtils.get_player_spare_ratings(player_data_week, col_name_len='short')
+
+                        player_data_by_season[season][week] = player_data_week
+                        lastweek = player_data_week
+                        break
+
+    return player_data_by_season
+
 
 def calculate_player_skillshifts(player_data1, player_data2):
     long_names = ['Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
     short_names = ['Bat', 'End', 'Bowl', 'Tech', 'Keep', 'Power', 'Field']
-    print(player_data1)
     saved_columns = [t for t in player_data1.axes[0].values]
     shifts = []
 

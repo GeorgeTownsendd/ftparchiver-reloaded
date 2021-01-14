@@ -216,11 +216,14 @@ def team_increase_quiver(db_name, group1_entry, group2_entry):
     fig.show()
 
     
-def training_age_increase_plot(training_data, training_names):
+def training_age_increase_plot(graphed_training_types, training_data='all'):
+    if training_data == 'all':
+        training_data = FTPUtils.catagorise_training(db_time_pairs='all')
+
     for k in training_data.keys():
         print(k, len(pd.concat(training_data[k])) if len(training_data[k]) != 0 else 0)
 
-    for training in training_names:
+    for training in graphed_training_types:
         training_ages = [t for t in training_data[training].keys()]
         training_average_increase = np.empty(len(training_data[training]))
         training_average_increase_max = np.empty(len(training_data[training]))
@@ -238,7 +241,110 @@ def training_age_increase_plot(training_data, training_names):
         plt.fill_between(training_ages, training_average_increase_max, training_average_increase_min, alpha=0.5)
 
 
-    plt.legend(training_names)
+    plt.legend(graphed_training_types)
     plt.axis([15, 33, 0, 500])
     plt.xticks(range(16, 33), range(16, 33))
     plt.show()
+
+
+def save_team_training_graphs(teamid, database_name):
+    player_ids = FTPUtils.get_team_players(int(teamid))['PlayerID']
+    print(player_ids)
+    for player_id in player_ids:
+        graph_player_training(int(player_id), database_name)
+        plt.close('all')
+
+
+def graph_player_training(playerid, database_name):
+    fig, ax1 = plt.subplots(figsize=(16.0, 9.0))
+
+    x = PlayerDatabase.track_player_training(playerid, '{}/{}.config'.format(database_name, database_name))
+    player_timestamps = []
+    player_ordered_data = []
+    player_ratings = []
+    players_sparerat = []
+    player_pops = []
+    player_training_sessions = []
+    player_name = False
+
+    for s in x.keys():
+        for w in x[s].keys():
+            player_included = not x[s][w].empty
+            if player_included:
+                player_data = x[s][w]
+                season_n, week_n = int(s[1:]), int(w[1:])
+                player_timestamps.append((season_n, week_n))
+
+                player_rating = player_data['Rating']
+                player_ratings.append(player_rating)
+
+                player_sparerating = player_data['SpareRat']
+                players_sparerat.append(player_sparerating)
+
+                player_training = player_data['Training']
+                player_training_sessions.append(player_training)
+
+                player_ordered_data.append(player_data)
+
+                if not player_name:
+                    player_name = player_data['Player']
+
+                if 'SkillShift' in [x for x in player_data.axes[0]]:
+                    player_pop = player_data['SkillShift']
+                    player_pops.append(player_pop)
+                else:
+                    player_pops.append('not-saved')
+
+    abs_weeks = [(d[0] * 15) + d[1] for d in player_timestamps]
+    ax1.plot(abs_weeks, player_ratings, color='tab:blue')
+    ax1.set_ylabel('Rating', color='tab:blue')
+
+    for n, pop in enumerate(player_pops):
+        if pop not in ['not-saved', 'none', 'Experience', 'Captaincy', ''] and type(pop) == str:
+            ax1.axvline(abs_weeks[n], color='tab:green', linestyle='--', label=pop)
+        else:
+            ax1.axvline(abs_weeks[n], color='tab:grey', linestyle='--')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Spare Ratings', color='tab:red')
+    ax2.plot(abs_weeks, players_sparerat, color='tab:red')
+
+    if len(abs_weeks) == 0:
+        abs_weeks += [0, 1]
+        ax1.set_yticks([0, 1])
+        ax2.set_yticks([0, 1])
+
+    ax2.set_xticks([x for x in range(min(abs_weeks), max(abs_weeks) + 1)])
+
+    labels = ['s{}w{}'.format(x // 15, x % 15) for x in range(min(abs_weeks), max(abs_weeks) + 1)]
+    labels_with_training = []
+    formatted_timestamps = ['s{}w{}'.format(t[0], t[1]) for t in player_timestamps]
+    for label in labels:
+        if label in formatted_timestamps:
+            ind = formatted_timestamps.index(label)
+            label = label + ' ({})'.format(FTPUtils.normalize_age_list([player_ordered_data[ind]['Age']], reverse=True)[0])
+            if player_pops[ind] not in ['not-saved', 'none', 'Experience', 'Captaincy', ''] and isinstance(player_pops[ind], str):
+                newlabel = label + '\n+{}'.format('\n+'.join(player_pops[ind].split('-')))
+                labels_with_training.append(newlabel)
+            else:
+                labels_with_training.append(label)
+        else:
+            labels_with_training.append(label)
+
+    ax2.set_xticklabels(labels_with_training, rotation=90)
+
+    ax_t = ax2.secondary_xaxis('top')
+    ax_t.set_xticks(abs_weeks)
+
+    labels = ['{} (+{})'.format(t, player_ordered_data[n]['Ratdif']) for n, t in enumerate(player_training_sessions)]
+    lastweek = 0
+    for n, week in enumerate(abs_weeks):
+        if week - lastweek != 1 and lastweek != 0:
+            labels[n] = labels[n][:labels[n].index('(')] + '(+' + str(int(''.join([x for x in labels[n][:-1] if x.isdigit()])) // (week - lastweek)) + ' avg.)'
+        lastweek = week
+    ax_t.set_xticklabels(labels)
+
+    plt.title('{} ({}) - Training History'.format(player_name, playerid), pad=20)
+    plt.tight_layout()
+    plt.show()
+    plt.savefig('temp/player_training/{}.png'.format(playerid))

@@ -386,7 +386,25 @@ def normalize_age_list(player_ages, reverse=False):
 
     return [str(age) if reverse else float(age) for age in new_ages]
 
-def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1, max_weeks_between_training=0):
+def generate_db_time_pairs(database_entries='all'):
+    if database_entries == 'all':
+        database_entries = PlayerDatabase.database_entries_from_directory('working_directory')
+
+    dbt_pairs = []
+    for database_name in database_entries.keys():
+        sequential_entries = []
+        for season in database_entries[database_name].keys():
+            for week in database_entries[database_name][season]:
+                sequential_entries.append(season + '.' + week)
+
+        for entry in range(len(sequential_entries)-1):
+            entryminus1 = [int(''.join([n for n in x if n.isdigit()])) for x in sequential_entries[entry-1].split('.')]
+            entry = [int(''.join([n for n in x if n.isdigit()])) for x in sequential_entries[entry].split('.')]
+            dbt_pairs.append((database_name, entryminus1, entry))
+
+    return dbt_pairs
+
+def catagorise_training(db_time_pairs='all', min_data_include=5, std_highlight_limit=1, max_weeks_between_training=1):
     '''
     Catagorises a set of players from database/week pairs into a dictionary of
     lists sorted by training/age. Used to view e.g. The average ratdif of all
@@ -398,13 +416,19 @@ def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1
         min_data_include = minimum points of data to plot for an age
         std_highlight_label = how wide the highlighted section should be for an age, by std
     '''
+    if db_time_pairs == 'all':
+        db_time_pairs = generate_db_time_pairs(database_entries='all')
+
+    db_time_pairs = [dbt for dbt in db_time_pairs if ((dbt[1][0] * 15) + dbt[1][1]) - ((dbt[2][0] * 15) + dbt[2][1]) <= max_weeks_between_training]
+
     training_data_collection = []
     for dbtpair in db_time_pairs:
         training_data_week = ratdif_from_weeks(dbtpair[0], dbtpair[1], dbtpair[2])
-        training_data_week = training_data_week[(training_data_week['Training'] != 'Rest') & (training_data_week['Ratdif'] > 0)]
-        non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
+        if 'Training' in training_data_week.columns:
+            training_data_week = training_data_week[(training_data_week['Training'] != 'Rest') & (training_data_week['Ratdif'] > 0)]
+            non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
 
-        training_data_collection.append(non_hidden_training)
+            training_data_collection.append(non_hidden_training)
 
     all_training_data = pd.concat(training_data_collection)
     all_training_data.drop_duplicates(['PlayerID', 'Rating'], inplace=True)
