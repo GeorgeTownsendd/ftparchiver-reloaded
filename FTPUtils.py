@@ -141,6 +141,17 @@ def get_team_page(teamid):
 
     return page
 
+def get_team_name(teamid, page=False):
+    if not page:
+        page = get_team_page(teamid)
+
+    page = page[page.index('Add this team to your bookmarks'):]
+    name_start_str = str(teamid) + '">'
+    name_end_str = '</a> &gt;&gt; Club'
+    team_name = page[page.index(name_start_str) + len(name_start_str):page.index(name_end_str)]
+
+    return team_name
+
 def get_team_region(teamid, return_type='regionid', page=False):
     if not page:
         browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
@@ -419,7 +430,7 @@ def catagorise_training(db_time_pairs='all', min_data_include=5, std_highlight_l
     if db_time_pairs == 'all':
         db_time_pairs = generate_db_time_pairs(database_entries='all')
 
-    db_time_pairs = [dbt for dbt in db_time_pairs if ((dbt[1][0] * 15) + dbt[1][1]) - ((dbt[2][0] * 15) + dbt[2][1]) <= max_weeks_between_training]
+    db_time_pairs = [dbt for dbt in db_time_pairs if (abs((dbt[2][0] * 15) + dbt[2][1]) - ((dbt[1][0] * 15) + dbt[1][1])) <= max_weeks_between_training]
 
     training_data_collection = []
     for dbtpair in db_time_pairs:
