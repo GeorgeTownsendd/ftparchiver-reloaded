@@ -11,6 +11,7 @@ class FTPBrowser:
         self.login()
 
     def login(self, max_attempts=3, logtype='full', logfile='default'):
+        self.rbrowser = RoboBrowser()
         with open('credentials.txt', 'r') as f:
             credentials = f.readline().split(',')
 
@@ -35,16 +36,25 @@ class FTPBrowser:
     def check_login(self, login_on_failure=True):
         if isinstance(self.rbrowser, type(None)):
             if login_on_failure:
+                log_event('Browser is NoneType. Restarting browser...')
                 self.login()
             else:
                 return False
         else:
             last_page_load = datetime.datetime.strptime(str(self.rbrowser.response.headers['Date'])[:-4] + '+0000', '%a, %d %b %Y %H:%M:%S%z')
             last_page = str(self.rbrowser.parsed)
-            if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) < datetime.timedelta(minutes=10) and 'logout.htm' in last_page:
-                return True
+            if 'logout.htm' in last_page:
+                if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) < datetime.timedelta(minutes=10):
+                    return True
+                else:
+                    if login_on_failure:
+                        self.login()
+                        log_event('Page timed out. Restarting browser...')
+                    else:
+                        return False
             else:
                 if login_on_failure:
+                    log_event('Error in page. Restarting browser...')
                     self.login()
                 else:
                     return False
