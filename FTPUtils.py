@@ -300,7 +300,7 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league'):
         round_start_ind = games_per_round*(round_n-1)
         round_end_ind = round_start_ind + games_per_round
 
-        return unique_gameids[round_start_ind:round_end_ind]
+        game_ids = unique_gameids[round_start_ind:round_end_ind]
 
     elif league_format == 'knockout':
         browser.rbrowser.open('https://www.fromthepavilion.org/cupfixtures.htm?cupId={}&currentRound=true'.format(leagueid))
@@ -328,8 +328,11 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league'):
                 if team1 in game and team2 in game:
                     requested_game_ids.append(''.join([c for c in game[:game.index('>')] if c.isdigit()]))
 
-        return requested_game_ids
+        game_ids = requested_game_ids
 
+    CoreUtils.log_event('Found {} games in round {} of {}'.format(len(game_ids), round_n, leagueid))
+
+    return game_ids
 
 
 def get_game_scorecard_table(gameid, ind_level=0):
