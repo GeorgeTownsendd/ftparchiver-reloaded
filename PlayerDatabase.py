@@ -462,6 +462,7 @@ def next_run_time(time_tuple):
     if isinstance(time_tuple, type(None)):
         return current_datetime
 
+    CoreUtils.log_event(str(time_tuple))
     db_scrape_hour, db_scrape_minute, db_days = time_tuple
 
     #TEST TEST TEST TEST
