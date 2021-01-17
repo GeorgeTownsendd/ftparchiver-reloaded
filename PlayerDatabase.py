@@ -593,7 +593,7 @@ def watch_database_list(database_list, ind_level=0):
                 time.sleep(seconds_between_attempts)
 
         if current_attempt < attempts_before_exiting:
-            CoreUtils.log_event('Successfully downloaded database {}. Next download again at {}'.format(master_database_stack[0][1], master_database_stack[0][0]), ind_level=ind_level+1)
+            CoreUtils.log_event('Successfully downloaded database {}'.format(master_database_stack[0][1]), ind_level=ind_level+1)
             if master_database_stack[0][1] == 'market-archive':
                 db_next_runtime = transfer_saved_until(master_database_stack[0][1])
             else:
