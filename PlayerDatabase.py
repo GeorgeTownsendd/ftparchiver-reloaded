@@ -598,7 +598,7 @@ def watch_database_list(database_list, ind_level=0):
             if master_database_stack[0][1] == 'market-archive':
                 db_next_runtime = transfer_saved_until(master_database_stack[0][1])
             else:
-                db_next_runtime = next_run_time(master_database_stack[-1])
+                db_next_runtime = next_run_time(master_database_stack[0][-1])
             master_database_stack[0] = [db_next_runtime] + master_database_stack[0][1:]
             master_database_stack = sorted(master_database_stack, key=lambda x : x[0])
             for d in master_database_stack:
