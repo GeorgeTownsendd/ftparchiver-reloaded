@@ -41,12 +41,12 @@ def log_event(logtext, logtype='full', logfile='default', ind_level=0):
         logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
 
 
-def check_login(use_browser=False, return_browser=False):
+def check_login(use_browser=False, return_browser=False, reload_homepage=False):
     global browser
     if use_browser:
         browser = use_browser
 
-    if isinstance(browser, type(None)):
+    if isinstance(browser, type(None)) or not browser:
         with open('credentials.txt', 'r') as f:
             credentials = f.readline().split(',')
         browser = login(credentials)
@@ -56,7 +56,10 @@ def check_login(use_browser=False, return_browser=False):
             return True
     else:
         last_page_load = datetime.datetime.strptime(str(browser.response.headers['Date'])[:-4]+'+0000', '%a, %d %b %Y %H:%M:%S%z')
-        if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) > datetime.timedelta(minutes=10):
+        if reload_homepage:
+            browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
+        browser_page = str(browser.parsed)
+        if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) > datetime.timedelta(minutes=10) or 'Watch the commentary or scorecard of your' in browser_page:
             log_event('Browser timed out...')
             with open('credentials.txt', 'r') as f:
                 credentials = f.readline().split(',')
@@ -71,6 +74,7 @@ def check_login(use_browser=False, return_browser=False):
                 return browser
             else:
                 return True
+
 
 def login(credentials, logtype='full', logfile='default', use_browser=False):
     global browser
@@ -209,6 +213,31 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
         pd.DataFrame.to_csv(team_players, to_file, index=False, float_format='%.2f')
 
     return team_players
+
+def get_current_ftp_time(return_type='inttuple'):
+    current_time = datetime.datetime.utcnow()
+    if return_type == 'datetime':
+        return current_time
+    elif return_type == 'inttuple':
+        return (int(current_time.weekday()), int(current_time.hour), (current_time.minute))
+
+
+def get_event_runtime_from_country(country_name, event, return_type='datetime', use_browser=False):
+    global browser
+    if use_browser:
+        browser = use_browser
+    browser = check_login(browser, return_browser=True)
+
+    country_offsets = [('Australia', [0, 0]), ('Bangladesh', [2, 0]), ('India', [4, 30]), ('Pakistan', [5, 0]), ('Sri Lanka', [5, 30]), ('South Africa', [8, 0]), ('Scotland', [9, 0]), ('England', [10, 0]), ('Ireland', [11, 30]), ('Netherlands', [12, 0]), ('Zimbabwe', [13, 0]), ('West Indies', [15, 0]), ('Canada', [16, 0]), ('New Zealand', [22, 0])]
+
+    selected_offset = country_offsets[[x[0] for x in country_offsets].index(country_name)]
+    current_time = get_current_ftp_time('inttuple')
+
+
+
+
+
+
 
 
 def get_player_wage(player_id, page=False, normalize_wage=False):
