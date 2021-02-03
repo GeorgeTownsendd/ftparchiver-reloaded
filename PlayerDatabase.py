@@ -107,8 +107,8 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
 
     if search_type == 'transfer_market':
         del players_df['Nat']
-        player_ids = [x[-20:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
-        region_ids = [x[-20:] for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][9:]
+        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
+        region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][-20:]
         players_df.insert(loc=3, column='Nat', value=region_ids)
         players_df.insert(loc=1, column='PlayerID', value=player_ids)
         players_df['Deadline'] = [deadline[:-5] + ' ' + deadline[-5:] for deadline in players_df['Deadline']]
