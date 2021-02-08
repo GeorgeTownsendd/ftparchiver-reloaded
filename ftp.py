@@ -646,6 +646,30 @@ class FTPUtils():
 
         return summary_dir
 
+    @staticmethod
+    def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0):
+        global browser
+        check_login()
+
+        if league_format == 'knockout':
+            if not isinstance(knockout_round, None):
+                round_n = knockout_round
+            else:
+                round_n = 1
+        else:
+            round_n = 1
+
+        log_event('Searching for teamids in leagueid {} - round {}'.format(leagueid, round_n, ind_level=ind_level))
+        gameids = FTPUtils.get_league_gameids(leagueid, round_n=round_n, league_format=league_format)
+        teamids = []
+        for gameid in gameids:
+            team1, team2 = FTPUtils.get_game_teamids(gameid, ind_level=ind_level+1)
+            teamids.append(team1)
+            teamids.append(team2)
+
+        log_event('Successfully found {} teams.'.format(len(teamids)), ind_level=ind_level)
+
+        return teamids
 
     @staticmethod
     def get_league_gameids(leagueid, round_n='latest', league_format='league'):
@@ -703,7 +727,7 @@ class FTPUtils():
 
 
     @staticmethod
-    def game_scordcard_table(gameid, ind_level=0):
+    def get_game_scorecard_table(gameid, ind_level=0):
         global browser
         check_login()
 
@@ -729,6 +753,7 @@ class FTPUtils():
         log_event('Found teams for game {} - {} vs {}'.format(gameid, home_team_id, away_team_id), ind_level=ind_level)
 
         return (home_team_id, away_team_id)
+
 
     @staticmethod
     def normalize_age(player_ages, reverse=False):
@@ -843,7 +868,7 @@ class PresentData():
                 round_teams.append(game[0]) #home
                 round_teams.append(game[1]) #away
         else:
-            scorecard_tables = [FTPUtils.game_scordcard_table(gameid) for gameid in requested_games]
+            scorecard_tables = [FTPUtils.game_scoredcard_table(gameid) for gameid in requested_games]
             for game in [g[-2] for g in scorecard_tables]:
                 round_teams.append(game[1][0]) #home
                 round_teams.append(game[1][1]) #away
