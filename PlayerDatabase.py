@@ -4,6 +4,9 @@ import CoreUtils
 
 browser = CoreUtils.browser
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import os
 import time
 import datetime
@@ -197,6 +200,8 @@ def download_database(config_file_directory, download_teams_whitelist=False, age
         database_settings['additional_columns'] = False
 
     if download_teams_whitelist:
+        if isinstance(download_teams_whitelist, str) or isinstance(download_teams_whitelist, int):
+            download_teams_whitelist = [download_teams_whitelist]
         download_teams_whitelist = [str(t) for t in download_teams_whitelist]
         teams_to_download = [team for team in additional_settings['teamids'] if str(team) in download_teams_whitelist]
         CoreUtils.log_event('Downloading {}/{} entries ({}) from database {}'.format(len(download_teams_whitelist), len(additional_settings['teamids']), download_teams_whitelist, config_file_directory.split('/')[-1]), ind_level=ind_level)
@@ -248,7 +253,7 @@ def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0)
 
     data_file = database + 's{}/w{}/{}.csv'.format(season, week, groupid)
     if os.path.isfile(data_file):
-        players = pd.read_csv(data_file, float_precision='2')
+        players = pd.read_csv(data_file)
         if normalize_age:
             players['Age'] = pd.Series(FTPUtils.normalize_age_list((players['Age'])))
         return players
@@ -559,7 +564,7 @@ def watch_database_list(database_list, ind_level=0):
         else:
             CoreUtils.log_event('{}: Loaded from file'.format(database_name), ind_level=ind_level + 1)
             if conf_data[0]['database_type'] == 'transfer_market_search':
-                db_first_runtime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc, seconds=0, microseconds=0)
+                db_first_runtime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc, second=0, microsecond=0)
                 db_event = [db_first_runtime, database_name, None, None, event_run_time_tuple]
             else:
                 db_first_runtime = next_run_time(event_run_time_tuple)

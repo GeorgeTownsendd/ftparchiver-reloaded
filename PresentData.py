@@ -4,6 +4,9 @@ import CoreUtils
 
 browser = CoreUtils.browser
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
 import pandas as pd

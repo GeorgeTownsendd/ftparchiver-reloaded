@@ -4,6 +4,9 @@ import CoreUtils
 
 browser = CoreUtils.browser
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import os
 import re
 import pandas as pd
@@ -30,6 +33,15 @@ def nationality_id_to_name_str(natid, full_name=False):
     nat_name_long = ['Australia', 'England', 'India', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies', 'Sri Lanka', 'Bangladesh', 'Zimbabwe', 'Canada', 'USA', 'Kenya', 'Scotland', 'Ireland', 'UAE', 'Bermuda', 'Netherlands']
 
     return nat_name_long[natid-1] if full_name else nat_name_short[natid-1]
+
+def age_id_to_str(age_type):
+    age_types = {0: 'all', 1: 'seniors', 2: 'youths'}
+
+    if isinstance(age_type, str):
+        if age_type.isdigit():
+            return age_types[age_type]
+    elif isinstance(age_type, int):
+        return age_types[age_type]
 
 
 def skill_word_to_index(skill_w, skill_word_type='full'):
@@ -92,9 +104,8 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
 
     playerids = []
     team_players = pd.DataFrame()
-
     try:
-        CoreUtils.log_event('Downloading players from teamid {}'.format(teamid, squad_url), ind_level=ind_level)
+        CoreUtils.log_event('Downloading players from teamid {} (Age: {})'.format(teamid, age_id_to_str(age_group)), ind_level=ind_level)
         team_players = pd.read_html(str(browser.rbrowser.parsed))[0]
         playerids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
     except ValueError:
@@ -122,7 +133,7 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
 
     if to_file:
         if os.path.exists(to_file):
-            old_file = pd.read_csv(to_file, float_precision=2)
+            old_file = pd.read_csv(to_file)
         else:
             old_file = pd.DataFrame()
         if overwrite_method == 'append':
