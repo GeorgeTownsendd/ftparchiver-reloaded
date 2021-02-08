@@ -581,7 +581,7 @@ def watch_database_list(database_list, ind_level=0):
     while True:
         next_database_download = master_database_stack[0]
         current_datetime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
-        seconds_until_next_run = int((master_database_stack[0][0] - current_datetime).total_seconds())
+        seconds_until_next_run = int((next_database_download[0] - current_datetime).total_seconds())
         if seconds_until_next_run > 0:
             hours_until_next_run = seconds_until_next_run // (60 * 60)
             extra_minutes = (seconds_until_next_run % (60 * 60)) // 60
