@@ -457,7 +457,7 @@ def calculate_player_skillshifts(player_data1, player_data2):
     return shifts
 
 
-def next_run_time(time_tuple):
+def next_run_time(time_tuple, extra_time_delta = datetime.timedelta(minutes=5)):
     current_datetime = datetime.datetime.now(datetime.timezone.utc)# - datetime.timedelta(days=1)
     if isinstance(time_tuple, type(None)):
         return current_datetime
@@ -485,9 +485,12 @@ def next_run_time(time_tuple):
     weekly_runtimes.sort()
     for runtime in weekly_runtimes:
         if runtime > current_datetime:
-            return runtime
+            final_runtime = runtime
+            break
     else:
-        return weekly_runtimes[0] + datetime.timedelta(days=7)
+        final_runtime = weekly_runtimes[0]
+
+    return final_runtime + extra_time_delta
 
 
 def split_database_events(database_name):
@@ -512,13 +515,13 @@ def split_database_events(database_name):
                 day_of_week = [2]
                 age_type = 'youths'
                 event_run_time_tuple = (run_hour, run_minute, day_of_week)
-                runtime = next_run_time(event_run_time_tuple) + datetime.timedelta(minutes=5)
+                runtime = next_run_time(event_run_time_tuple)
                 split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
             if agegroup in ['0', '2', 'all', 'seniors']:
                 day_of_week = [0]
                 age_type = 'seniors'
                 event_run_time_tuple = (run_hour, run_minute, day_of_week)
-                runtime = next_run_time(event_run_time_tuple) + datetime.timedelta(minutes=5)
+                runtime = next_run_time(event_run_time_tuple)
                 split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
 
     return split_event_list
