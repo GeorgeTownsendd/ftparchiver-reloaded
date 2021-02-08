@@ -1,26 +1,26 @@
 import FTPUtils
 import PresentData
+import CoreUtils
+
+browser = CoreUtils.browser
+
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import os
 import time
 import datetime
 import re
+import pytz
 import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
 import pandas as pd
 import shutil
-import numpy as np
-import matplotlib
-#matplotlib.use('Agg')
+from glob import glob
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
-import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
-import mplcursors
-from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
-
-browser = False
 
 GLOBAL_SETTINGS = ['name', 'description', 'database_type', 'w_directory', 'archive_days', 'scrape_time', 'additional_columns']
 ORDERED_SKILLS = [['ID', 'Player', 'Nat', 'Deadline', 'Current Bid'], ['Rating', 'Exp', 'Talents', 'BT'], ['Bat', 'Bowl', 'Keep', 'Field'], ['End', 'Tech', 'Pow']]
@@ -32,11 +32,11 @@ def generate_config_file(database_settings, additional_settings):
 
     if not os.path.exists(database_settings['w_directory']):
         os.makedirs(database_settings['w_directory'])
-        FTPUtils.FTPUtils.log_event('Creating directory {}'.format(database_settings['w_directory']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
+        CoreUtils.log_event('Creating directory {}'.format(database_settings['w_directory']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
 
     if os.path.isfile(conf_file):
         shutil.copy(conf_file, conf_file + '.old')
-        FTPUtils.FTPUtils.log_event('Config file {} already exisits, copying to {} and creating new file'.format(conf_file, conf_file + '.old'), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
+        CoreUtils.log_event('Config file {} already exisits, copying to {} and creating new file'.format(conf_file, conf_file + '.old'), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
 
     with open(conf_file, 'w') as f:
         for setting in GLOBAL_SETTINGS:
@@ -54,7 +54,7 @@ def generate_config_file(database_settings, additional_settings):
             else:
                 f.write('{}:{}\n'.format(setting, additional_settings[setting]))
 
-    FTPUtils.log_event('Successfully created config file {}'.format(conf_file), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
+    CoreUtils.log_event('Successfully created config file {}'.format(conf_file), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
 
 
 def load_config_file(config_file_directory):
@@ -71,7 +71,11 @@ def load_config_file(config_file_directory):
             if setting_name in ['additional_columns', 'archive_days', 'teamids']:
                 all_file_values[setting_name]= value.split(',')
             elif setting_name in ['scrape_time']:
-                all_file_values[setting_name] = value.split(':')
+                if ':' in value:
+                    all_file_values[setting_name] = value.split(':')
+                else:
+                    if value in ['youthtraining', 'seniortraining', 'auto']:
+                        all_file_values[setting_name] = value
             else:
                 all_file_values[setting_name] = value
 
@@ -84,36 +88,31 @@ def load_config_file(config_file_directory):
     return database_settings, additional_settings
 
 
-def player_search(search_settings={}, to_file=False, search_type='transfer_market', normalize_age=False, additional_columns=False, return_sort_column=False, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = FTPUtils.check_login(browser, return_browser=True)
-
+def player_search(search_settings={}, to_file=False, search_type='transfer_market', normalize_age=False, additional_columns=False, return_sort_column=False, ind_level=0):
     if search_type != 'all':
-        FTPUtils.log_event('Searching {} for players with parameters {}'.format(search_type, search_settings), ind_level=ind_level)
+        CoreUtils.log_event('Searching {} for players with parameters {}'.format(search_type, search_settings), ind_level=ind_level)
         url = 'https://www.fromthepavilion.org/{}.htm'
         if search_type == 'transfer_market':
             url = url.format('transfer')
         elif search_type == 'nat_search':
             url = url.format('natsearch')
         else:
-            FTPUtils.log_event('Invalid search_type in player_search! - {}'.format(search_type))
+            CoreUtils.log_event('Invalid search_type in player_search! - {}'.format(search_type))
 
-        browser.open(url)
-        search_settings_form = browser.get_form()
+        browser.rbrowser.open(url)
+        search_settings_form = browser.rbrowser.get_form()
 
         for setting in search_settings.keys():
             search_settings_form[setting] = str(search_settings[setting])
 
 
-        browser.submit_form(search_settings_form)
-        players_df = pd.read_html(str(browser.parsed))[0]
+        browser.rbrowser.submit_form(search_settings_form)
+        players_df = pd.read_html(str(browser.rbrowser.parsed))[0]
 
     if search_type == 'transfer_market':
         del players_df['Nat']
-        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
-        region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.parsed))][9:]
+        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
+        region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][-20:]
         players_df.insert(loc=3, column='Nat', value=region_ids)
         players_df.insert(loc=1, column='PlayerID', value=player_ids)
         players_df['Deadline'] = [deadline[:-5] + ' ' + deadline[-5:] for deadline in players_df['Deadline']]
@@ -127,15 +126,15 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
 
     elif search_type == 'nat_search':
         del players_df['Unnamed: 13']
-        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+        player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
         players_df.insert(loc=1, column='PlayerID', value=player_ids)
 
     elif search_type == 'all':
         if 'pages' not in search_settings.keys():
             search_settings['pages'] = 1
 
-        browser.open('https://www.fromthepavilion.org/playerranks.htm?regionId=1')
-        search_settings_form = browser.get_forms()[0]
+        browser.rbrowser.open('https://www.fromthepavilion.org/playerranks.htm?regionId=1')
+        search_settings_form = browser.rbrowser.get_forms()[0]
 
         for search_setting in ['nation', 'region', 'age', 'wagesort']:
             if search_setting in search_settings.keys():
@@ -152,21 +151,21 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
         region_ids = []
         players_df = pd.DataFrame()
 
-        FTPUtils.log_event('Searching for best players with parameters {}'.format(search_settings), ind_level=ind_level)
+        CoreUtils.log_event('Searching for best players with parameters {}'.format(search_settings), ind_level=ind_level)
         for page in range(int(search_settings['pages'])):
             search_settings_form['page'].value = str(page)
-            browser.submit_form(search_settings_form)
+            browser.rbrowser.submit_form(search_settings_form)
 
-            pageplayers_df = pd.read_html(str(browser.parsed))[1]
+            pageplayers_df = pd.read_html(str(browser.rbrowser.parsed))[1]
             players_df = players_df.append(pageplayers_df)
 
-            page_player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
-            page_region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.parsed))][20:]
+            page_player_ids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
+            page_region_ids = [x[9:] for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][20:]
 
             player_ids += page_player_ids
             region_ids += page_region_ids
 
-                # FTPUtils.log_event('Downloaded page {}/{}...'.format(page + 1, int(search_settings['pages'])), logtype='console', ind_level=1)
+                # CoreUtils.log_event('Downloaded page {}/{}...'.format(page + 1, int(search_settings['pages'])), logtype='console', ind_level=1)
 
         del players_df['Nat']
         players_df.insert(loc=3, column='Nat', value=region_ids)
@@ -177,7 +176,7 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
         players_df['Age'] = FTPUtils.normalize_age_list(players_df['Age'])
 
     if additional_columns:
-        players_df = add_player_columns(players_df, additional_columns, ind_level=ind_level+1, use_browser=browser)
+        players_df = add_player_columns(players_df, additional_columns, ind_level=ind_level+1)
         sorted_columns = ['Player', 'PlayerID', 'Age', 'NatSquad', 'Touring', 'Wage', 'Rating','BT', 'End', 'Bat', 'Bowl', 'Tech', 'Pow', 'Keep', 'Field', 'Exp', 'Talents', 'SpareRat']
         sorted_columns = sorted_columns + [c for c in list(players_df.columns) if c not in sorted_columns]
         players_df = players_df.reindex(columns=sorted_columns)
@@ -193,13 +192,7 @@ def player_search(search_settings={}, to_file=False, search_type='transfer_marke
     return players_df
 
 
-def download_database(config_file_directory, preserve_exisiting=False, return_next_runtime=False, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = FTPUtils.check_login(browser, return_browser=True)
-    FTPUtils.log_event('Downloading database {}'.format(config_file_directory.split('/')[-1]), ind_level=ind_level)
-
+def download_database(config_file_directory, download_teams_whitelist=False, age_override=False, preserve_exisiting=False, ind_level=0):
     if '/' not in config_file_directory:
         config_file_directory = config_file_directory + '/' + config_file_directory + '.config'
 
@@ -207,8 +200,19 @@ def download_database(config_file_directory, preserve_exisiting=False, return_ne
     if 'additional_columns' not in database_settings.keys():
         database_settings['additional_columns'] = False
 
-    browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-    timestr = re.findall('Week [0-9]+, Season [0-9]+', str(browser.parsed))[0]
+    if download_teams_whitelist:
+        if isinstance(download_teams_whitelist, str) or isinstance(download_teams_whitelist, int):
+            download_teams_whitelist = [download_teams_whitelist]
+        download_teams_whitelist = [str(t) for t in download_teams_whitelist]
+        teams_to_download = [team for team in additional_settings['teamids'] if str(team) in download_teams_whitelist]
+        CoreUtils.log_event('Downloading {}/{} entries ({}) from database {}'.format(len(download_teams_whitelist), len(additional_settings['teamids']), download_teams_whitelist, config_file_directory.split('/')[-1]), ind_level=ind_level)
+    else:
+        if 'teamids' in additional_settings.keys():
+            teams_to_download = additional_settings['teamids']
+        CoreUtils.log_event('Downloading database {}'.format(config_file_directory.split('/')[-1]), ind_level=ind_level)
+
+    browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
+    timestr = re.findall('Week [0-9]+, Season [0-9]+', str(browser.rbrowser.parsed))[0]
     week, season = timestr.split(',')[0].split(' ')[-1], timestr.split(',')[1].split(' ')[-1]
 
     if database_settings['database_type'] != 'transfer_market_search':
@@ -218,27 +222,25 @@ def download_database(config_file_directory, preserve_exisiting=False, return_ne
 
     if not os.path.exists(season_dir):
         os.makedirs(season_dir)
-        FTPUtils.log_event('Creating directory {}'.format(season_dir), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'], ind_level=ind_level)
+        CoreUtils.log_event('Creating directory {}'.format(season_dir.replace('//', '/')), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'], ind_level=ind_level)
 
     player_df = pd.DataFrame()
     if database_settings['database_type'] in ['domestic_team', 'national_team']:
-        for teamid in additional_settings['teamids']:
-            player_df.append(FTPUtils.get_team_players(teamid, age_group=additional_settings['age'], to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, teamid), ind_level=ind_level+1, additional_columns=database_settings['additional_columns']))
+        for teamid in teams_to_download:
+            if age_override:
+                download_age = age_override
+            else:
+                download_age = additional_settings['age']
+
+            filename = database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, teamid)
+            player_df.append(FTPUtils.get_team_players(teamid, age_group=download_age, to_file=filename, ind_level=ind_level+1, additional_columns=database_settings['additional_columns']))
     elif database_settings['database_type'] == 'best_player_search':
-        for nationality_id in additional_settings['teamids']:
+        for nationality_id in teams_to_download:
             additional_settings['nation'] = nationality_id
             player_df.append(player_search(additional_settings, search_type='all', to_file=database_settings['w_directory'] + 's{}/w{}/{}.csv'.format(season, week, nationality_id), additional_columns=database_settings['additional_columns'], ind_level=ind_level+1))
     elif database_settings['database_type'] == 'transfer_market_search':
-        player_df = player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1, use_browser=browser)
+        player_df = player_search(search_settings=additional_settings, search_type='transfer_market', additional_columns=database_settings['additional_columns'], ind_level=ind_level+1)
         player_df.to_csv(database_settings['w_directory'] + '/s{}/w{}/{}.csv'.format(season, week, player_df['Deadline'][0] + ' - ' + player_df['Deadline'][len(player_df['Deadline'])-1]))
-
-    #FTPUtils.log_event('Successfully saved {} players from database {}'.format(len(player_df.PlayerID), database_settings['name']), logfile=['default', database_settings['w_directory'] + database_settings['name'] + '.log'])
-    if return_next_runtime:
-        if database_settings['database_type'] != 'transfer_market_search':
-            return next_run_time([database_settings, additional_settings])
-        else:
-            return datetime.datetime.strptime(player_df['Deadline'][len(player_df['Deadline'])-1] + ' +0000', '%d %b %Y %H:%M %z')
-
 
 def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0):
     if database[-1] != '/':
@@ -252,30 +254,37 @@ def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0)
 
     data_file = database + 's{}/w{}/{}.csv'.format(season, week, groupid)
     if os.path.isfile(data_file):
-        players = pd.read_csv(data_file, float_precision='2')
+        players = pd.read_csv(data_file)
         if normalize_age:
             players['Age'] = pd.Series(FTPUtils.normalize_age_list((players['Age'])))
         return players
     else:
-        FTPUtils.log_event('Error loading database entry (file not found): {}'.format(data_file), logtype='full', logfile=log_files, ind_level=ind_level)
+        CoreUtils.log_event('Error loading database entry (file not found): {}'.format(data_file), logtype='full', logfile=log_files, ind_level=ind_level)
 
+def transfer_saved_until(database_name, ):
+    PATH = database_name + '/'
+    EXT = '*.csv'
 
-def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0, use_browser=False):
-    if column_types != ['SpareRat']: #no need to log in
-        global browser
-        if use_browser:
-            browser = use_browser
-        browser = FTPUtils.check_login(browser, return_browser=True)
-    FTPUtils.log_event('Creating additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
+    all_csv_files = [file for path, subdir, files in os.walk(PATH) for file in glob(os.path.join(path, EXT))]
+    file_dates = [fname.split('/')[-1][:-4].split(' - ')[1] for fname in all_csv_files]
 
+    file_datetimes = [datetime.datetime.strptime(timestamp, '%d %b %Y %H:%M') for timestamp in file_dates]
+
+    saved_until_time = max(file_datetimes)
+    saved_until_time = saved_until_time.replace(tzinfo=pytz.UTC) - datetime.timedelta(minutes=2)
+
+    return saved_until_time
+
+def add_player_columns(player_df, column_types, normalize_wages=True, returnsortcolumn=None, ind_level=0):
+    CoreUtils.log_event('Creating additional columns ({}) for {} players'.format(column_types, len(player_df['Rating'])), ind_level=ind_level)
 
     all_player_data = []
     hidden_training_n = 0
     for player_id in player_df['PlayerID']:
         player_data = []
         if 'Training' in column_types:
-            browser.open('https://www.fromthepavilion.org/playerpopup.htm?playerId={}'.format(player_id))
-            popup_page_info = pd.read_html(str(browser.parsed))
+            browser.rbrowser.open('https://www.fromthepavilion.org/playerpopup.htm?playerId={}'.format(player_id))
+            popup_page_info = pd.read_html(str(browser.rbrowser.parsed))
             try:
                 training_selection = popup_page_info[0][3][9]
             except KeyError: #player training not visible to manager
@@ -283,8 +292,8 @@ def add_player_columns(player_df, column_types, normalize_wages=True, returnsort
                 hidden_training_n += 1
 
         if column_types != ['Training'] and column_types != ['SpareRat']:
-            browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
-            player_page = str(browser.parsed)
+            browser.rbrowser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
+            player_page = str(browser.rbrowser.parsed)
 
         for column_name in column_types:
             if column_name == 'Training':
@@ -327,13 +336,11 @@ def add_player_columns(player_df, column_types, normalize_wages=True, returnsort
         all_player_data.append(player_data)
 
     if hidden_training_n > 0:
-        FTPUtils.log_event('Training not visible for {}/{} players - marked "Hidden" in dataframe'.format(hidden_training_n, len(player_df['PlayerID'])), ind_level=ind_level+1)
-
+        CoreUtils.log_event('Training not visible for {}/{} players - marked "Hidden" in dataframe'.format(hidden_training_n, len(player_df['PlayerID'])), ind_level=ind_level+1)
 
     for n, column_name in enumerate(column_types):
         values = [v[n] for v in all_player_data]
         player_df.insert(3, column_name, values)
-
 
     if returnsortcolumn in player_df.columns:
         player_df.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
@@ -350,8 +357,13 @@ def match_pg_ids(pg1, pg2, returnsortcolumn='Player'):
     pg1_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
     pg2_shared.sort_values('PlayerID', inplace=True, ignore_index=True, ascending=False)
 
-    add_columns = ['Ratdif', 'Wagedif', 'SkillShift']
+    add_columns = ['Ratdif', 'Wagedif']
+    #if 'Bat' in pg2_shared.columns or 'Batting' in pg2_shared.columns:
+    #    add_columns.append('SkillShift')
+
     pg2_shared = calculate_additional_columns(pg1_shared, pg2_shared, add_columns)
+    for c in add_columns:
+        pg1_shared[c] = pg2_shared[c]
 
     pg1_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
     pg2_shared.sort_values(returnsortcolumn, inplace=True, ignore_index=True, ascending=False)
@@ -373,11 +385,70 @@ def calculate_additional_columns(pg1, pg2, columns):
 
     return pg2
 
+def database_entries_from_directory(directory='working_directory'):
+    if directory == 'working_directory':
+        directory = os.getcwd()
+
+    local_directories = os.listdir(directory)
+    database_names = []
+    for sub_dir in local_directories:
+        path = '{}/{}'.format(directory, sub_dir)
+        if os.path.isdir(path):
+            sub_files = os.listdir(path)
+            for file in sub_files:
+                if '.config' in file:
+                    dbname = file.split('.')[0]
+                    config_data = load_config_file(dbname)
+                    if 'teamids' in config_data[1].keys():
+                        database_names.append(dbname)
+
+    database_entries = {}
+
+    for dbname in database_names:
+        seasons = [season_folder for season_folder in os.listdir(dbname + '/') if re.match('s[0-9]+', season_folder)]
+        season_weeks = {season_folder: [week_folder for week_folder in os.listdir('{}/{}/'.format(dbname, season_folder)) if re.match('w[0-9]+', week_folder)] for season_folder in seasons}
+        database_entries[dbname] = season_weeks
+
+    return database_entries
+
+
+def track_player_training(playerid, database_config_file):
+    database_config = load_config_file(database_config_file)
+    player_data_by_season = {season : {} for season in os.listdir(database_config[0]['w_directory']) if bool(re.match('^.*s[0-9]+.*$', season))}
+    lastweek = None
+
+    for season in player_data_by_season.keys():
+        season_directory = database_config[0]['w_directory'] + season + '/'
+        for week in os.listdir(season_directory):
+            week_directory = season_directory + week + '/'
+            for teamid in [x for x in os.listdir(week_directory) if x[-4:] == '.csv']:
+                team_data = load_entry(database_config[0]['w_directory'], ''.join([x for x in season if x.isdigit()]), ''.join([x for x in week if x.isdigit()]), ''.join([x for x in teamid if x.isdigit()]))
+                player_data_week = team_data[team_data['PlayerID'] == playerid]
+                if not player_data_week.empty:
+                    player_data_week = player_data_week.iloc[0]
+                    column_names = [t for t in player_data_week.axes[0].values]
+                    if 'Bat' in column_names and 'Training' in column_names:
+                        if not isinstance(lastweek, type(None)):# and 'SkillShift' not in column_names:
+                            trained_skill_list = calculate_player_skillshifts(lastweek, player_data_week)
+                            trained_skills = '-'.join(trained_skill_list)
+                            if trained_skills != '':
+                                player_data_week['SkillShift'] = trained_skills
+
+                            player_data_week['Ratdif'] = player_data_week['Rating'] - lastweek['Rating']
+                        else:
+                            player_data_week['Ratdif'] = '???'
+                        player_data_week['SpareRat'] = FTPUtils.get_player_spare_ratings(player_data_week, col_name_len='short')
+
+                        player_data_by_season[season][week] = player_data_week
+                        lastweek = player_data_week
+                        break
+
+    return player_data_by_season
+
 
 def calculate_player_skillshifts(player_data1, player_data2):
     long_names = ['Batting', 'Endurance', 'Bowling', 'Technique', 'Keeping', 'Power', 'Fielding']
     short_names = ['Bat', 'End', 'Bowl', 'Tech', 'Keep', 'Power', 'Field']
-    print(player_data1)
     saved_columns = [t for t in player_data1.axes[0].values]
     shifts = []
 
@@ -394,11 +465,15 @@ def calculate_player_skillshifts(player_data1, player_data2):
     return shifts
 
 
-def next_run_time(db_config_file):
-    current_datetime = datetime.datetime.now(datetime.timezone.utc)# - datetime.timedelta(days=1)
-    db_scrape_hour, db_scrape_minute = db_config_file[0]['scrape_time']
+def next_run_time(time_tuple, extra_time_delta = datetime.timedelta(minutes=5)):
+    current_datetime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)# - datetime.timedelta(days=1)
+    if isinstance(time_tuple, type(None)):
+        return current_datetime
 
-    db_days = db_config_file[0]['archive_days']
+    db_scrape_hour, db_scrape_minute, db_days = time_tuple
+
+    if int(db_scrape_hour) >= 12:
+        db_days = [(int(n) - 1) % 7 for n in db_days]
 
     weekly_runtimes = []
     for day in db_days:
@@ -407,59 +482,136 @@ def next_run_time(db_config_file):
         if days_ahead < 0:  # Target day already happened this week
             days_ahead += 7
         next_run_datetime = current_datetime + datetime.timedelta(days_ahead)
-        next_run_datetime = next_run_datetime.replace(hour=int(db_scrape_hour), minute=int(db_scrape_minute), second=0, microsecond=0)
+        next_run_datetime = next_run_datetime.replace(hour=int(db_scrape_hour), minute=int(db_scrape_minute), second=0, microsecond=0, tzinfo=pytz.UTC)
         weekly_runtimes.append(next_run_datetime)
 
     weekly_runtimes.sort()
     for runtime in weekly_runtimes:
         if runtime > current_datetime:
-            return runtime
+            final_runtime = runtime
+            break
     else:
-        return weekly_runtimes[0] + datetime.timedelta(days=7)
+        if weekly_runtimes[0] < datetime.datetime.utcnow().replace(tzinfo=pytz.UTC):
+            final_runtime = weekly_runtimes[0] + datetime.timedelta(days=7)
+        else:
+            final_runtime = weekly_runtimes[0]
+
+    return final_runtime + extra_time_delta
 
 
-def watch_database_list(database_list, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = FTPUtils.check_login(browser, return_browser=True)
+def split_database_events(database_name):
+    conf_data = load_config_file(database_name)
+    agegroup = conf_data[1]['age']
+    teamids = conf_data[1]['teamids']
+    teamregions = [FTPUtils.get_team_region(teamid) for teamid in teamids]
 
-    loaded_database_dict = {}
-    database_stack = []
+    teams_by_region = {}
+    for teamid, region_id in zip(teamids, teamregions):
+        if region_id in teams_by_region.keys():
+            teams_by_region[region_id].append((teamid, agegroup))
+        else:
+            teams_by_region[region_id] = [(teamid, agegroup)]
+
+    split_event_list = []
+    for region_id in teams_by_region.keys():
+        run_time = FTPUtils.country_game_start_time(region_id)
+        run_hour, run_minute = run_time.split(':')
+        for teamid, agegroup in teams_by_region[region_id]:
+            if agegroup in ['0', '1', 'all', 'youths']:
+                day_of_week = [0]
+                age_type = 'youths'
+                event_run_time_tuple = (run_hour, run_minute, day_of_week)
+                runtime = next_run_time(event_run_time_tuple)
+                split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
+            if agegroup in ['0', '2', 'all', 'seniors']:
+                day_of_week = [2]
+                age_type = 'seniors'
+                event_run_time_tuple = (run_hour, run_minute, day_of_week)
+                runtime = next_run_time(event_run_time_tuple)
+                split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
+
+    return split_event_list
+
+
+def watch_database_list(database_list, ind_level=0):
+    if not isinstance(type(database_list), type(list)):
+        database_list = [database_list]
+
+    database_config_dic = {}
+    master_database_stack = []
+    CoreUtils.log_event('Generating download times for watch_database_list:')
     for database_name in database_list:
         conf_data = load_config_file(database_name)
-        if conf_data[0]['database_type'] != 'transfer_market_search':
-            db_next_runtime = next_run_time(conf_data)
-            loaded_database_dict[database_name] = [conf_data, db_next_runtime]
-            database_stack.append([database_name, db_next_runtime])
+        database_config_dic[database_name] = conf_data
+        if 'archive_days' in conf_data[0].keys():
+            db_scrape_hour, db_scrape_minute = conf_data[0]['scrape_time']
+            db_days = conf_data[0]['archive_days']
+            if not isinstance(type(db_days), type(list)):
+                db_days = [int(db_days)]
+            db_days = [int(d) for d in db_days]
+            event_run_time_tuple = (db_scrape_hour, db_scrape_minute, db_days)
+        elif conf_data[0]['database_type'] == 'transfer_market_search':
+            event_run_time_tuple = None
+
+        if conf_data[0]['database_type'] in ['domestic_team', 'national_team']:
+            if conf_data[0]['scrape_time'] == 'auto':
+                CoreUtils.log_event('{}: Generating from config'.format(database_name), ind_level=ind_level+1)
+                db_stack = split_database_events(database_name)
+                for item in db_stack:
+                    master_database_stack.append(item)
+            else:
+                CoreUtils.log_event('{}: Loaded from file'.format(database_name), ind_level=ind_level+1)
+                db_age_group = conf_data[1]['age']
+                db_next_runtime = next_run_time(event_run_time_tuple)
+                for teamid in conf_data[1]['teamids']:
+                    db_event = [db_next_runtime, database_name, teamid, db_age_group, event_run_time_tuple]
+                    master_database_stack.append(db_event)
         else:
-            current_datetime = datetime.datetime.now(datetime.timezone.utc)
-            loaded_database_dict[database_name] = [conf_data, current_datetime]
-            database_stack.append([database_name, current_datetime])
+            CoreUtils.log_event('{}: Loaded from file'.format(database_name), ind_level=ind_level + 1)
+            if conf_data[0]['database_type'] == 'transfer_market_search':
+                db_first_runtime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc, second=0, microsecond=0)
+                db_event = [db_first_runtime, database_name, None, None, event_run_time_tuple]
+            else:
+                db_first_runtime = next_run_time(event_run_time_tuple)
+                db_event = [db_first_runtime, database_name, None, conf_data[1]['age'], event_run_time_tuple]
+            master_database_stack.append(db_event)
+
+    master_database_stack.sort(key=lambda x : x[0])
 
     while True:
-        current_datetime = datetime.datetime.now(datetime.timezone.utc)
-        seconds_until_next_run = int((database_stack[0][1] - current_datetime).total_seconds())
+        next_database_download = master_database_stack[0]
+        current_datetime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
+        seconds_until_next_run = int((next_database_download[0] - current_datetime).total_seconds())
         if seconds_until_next_run > 0:
-            FTPUtils.log_event('Sleeping {}m{}s until {} runtime at {}'.format(seconds_until_next_run // 60, seconds_until_next_run % 60, database_stack[0][0], database_stack[0][1]), ind_level=ind_level)
+            hours_until_next_run = seconds_until_next_run // (60 * 60)
+            extra_minutes = (seconds_until_next_run % (60 * 60)) // 60
+            CoreUtils.log_event('Pausing program for {}d{}h{}m until next event: database: {}:{}'.format(hours_until_next_run // 24, hours_until_next_run % 24, extra_minutes, master_database_stack[0][1], master_database_stack[0][2]))
             time.sleep(seconds_until_next_run)
 
         attempts_before_exiting = 10
         current_attempt = 0
         seconds_between_attempts = 60
+        browser.check_login()
 
         while current_attempt <= attempts_before_exiting:
             try:
-                db_next_runtime = download_database(database_stack[0][0], return_next_runtime=True, use_browser=browser)
+                download_database(next_database_download[1], download_teams_whitelist=next_database_download[2], age_override=next_database_download[3])
                 if current_attempt > 0:
-                    FTPUtils.log_event('Completed successfully after {} failed attempts'.format(current_attempt), ind_level=ind_level)
+                    CoreUtils.log_event('Completed successfully after {} failed attempts'.format(current_attempt), ind_level=ind_level)
                 break
-            except:
-                FTPUtils.log_event('Error downloading database. {}/{} attempts, {}s between attempts...'.format(current_attempt, attempts_before_exiting, seconds_between_attempts), ind_level=ind_level+1)
+            except ZeroDivisionError:
+                CoreUtils.log_event('Error downloading database. {}/{} attempts, {}s between attempts...'.format(current_attempt, attempts_before_exiting, seconds_between_attempts), ind_level=ind_level+1)
                 time.sleep(seconds_between_attempts)
 
-        FTPUtils.log_event('Database {} will be downloaded again at {}'.format(database_stack[0][0], db_next_runtime), ind_level=ind_level)
-        database_stack[0][1] = db_next_runtime
-        database_stack = sorted(database_stack, key=lambda x: x[1])
-
-    return database_stack
+        if current_attempt < attempts_before_exiting:
+            CoreUtils.log_event('Successfully downloaded {}'.format(next_database_download), ind_level=ind_level+1)
+            if master_database_stack[0][1] == 'market-archive':
+                db_next_runtime = transfer_saved_until(master_database_stack[0][1])
+            else:
+                db_next_runtime = next_run_time(master_database_stack[0][-1])
+            print(db_next_runtime, master_database_stack[0][1:])
+            print(type(db_next_runtime), type(master_database_stack[0][1:]))
+            master_database_stack[0] = [db_next_runtime] + list(master_database_stack[0][1:])
+            master_database_stack = sorted(master_database_stack, key=lambda x : x[0])
+            for d in master_database_stack:
+                print(d)

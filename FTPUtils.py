@@ -1,107 +1,31 @@
 import PlayerDatabase
 import PresentData
+import CoreUtils
+
+browser = CoreUtils.browser
+
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import os
-import time
-import datetime
 import re
-import werkzeug
-werkzeug.cached_property = werkzeug.utils.cached_property
-from robobrowser import RoboBrowser
 import pandas as pd
-import shutil
 import numpy as np
 import matplotlib
-#matplotlib.use('Agg')
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
-import matplotlib.pyplot as plt
 import seaborn as sns; sns.set_theme(color_codes=True)
-import mplcursors
 from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
 
-browser = False
 SKILL_LEVELS = ['atrocious', 'dreadful', 'poor', 'ordinary', 'average', 'reasonable', 'capable', 'reliable', 'accomplished', 'expert', 'outstanding', 'spectacular', 'exceptional', 'world class', 'elite', 'legendary']
 
-def log_event(logtext, logtype='full', logfile='default', ind_level=0):
-    current_time = datetime.datetime.now()
-    if type(logfile) == str:
-        logfile = [logfile]
-
-    for logf in logfile:
-        if logf == 'default':
-            logf = 'ftp_archiver_output_history.log'
-        if logtype in ['full', 'console']:
-            print('[{}] '.format(current_time.strftime('%d/%m/%Y-%H:%M:%S')) + '\t' * ind_level + logtext)
-        if logtype in ['full', 'file']:
-            with open(logf, 'a') as f:
-                f.write('[{}] '.format(current_time.strftime('%d/%m/%Y-%H:%M:%S')) + logtext + '\n')
-
-        logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
-
-
-def check_login(use_browser=False, return_browser=False, reload_homepage=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-
-    if isinstance(browser, type(None)) or not browser:
-        with open('credentials.txt', 'r') as f:
-            credentials = f.readline().split(',')
-        browser = login(credentials)
-        if return_browser:
-            return browser
-        else:
-            return True
-    else:
-        last_page_load = datetime.datetime.strptime(str(browser.response.headers['Date'])[:-4]+'+0000', '%a, %d %b %Y %H:%M:%S%z')
-        if reload_homepage:
-            browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-        browser_page = str(browser.parsed)
-        if (datetime.datetime.now(datetime.timezone.utc) - last_page_load) > datetime.timedelta(minutes=10) or 'Watch the commentary or scorecard of your' in browser_page:
-            log_event('Browser timed out...')
-            with open('credentials.txt', 'r') as f:
-                credentials = f.readline().split(',')
-            browser = login(credentials)
-            browser.open('https://www.fromthepavilion.org/club.htm?teamId=4791')
-            if return_browser:
-                return browser
-            else:
-                return True
-        else:
-            if return_browser:
-                return browser
-            else:
-                return True
-
-
-def login(credentials, logtype='full', logfile='default', use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-
-    browser = RoboBrowser(history=True)
-    browser.open('http://www.fromthepavilion.org/')
-    form = browser.get_form(action='securityCheck.htm')
-
-    form['j_username'] = credentials[0]
-    form['j_password'] = credentials[1]
-
-    browser.submit_form(form)
-    if check_login(browser, return_browser=False):
-        logtext = 'Successfully logged in as user {}.'.format(credentials[0])
-        log_event(logtext, logtype=logtype, logfile=logfile)
-        return browser
-    else:
-        logtext = 'Failed to log in as user {}'.format(credentials[0])
-        log_event(logtext, logtype=logtype, logfile=logfile)
-        return None
 
 def nationality_id_to_rgba_color(natid):
     nat_colors = ['darkblue', 'red', 'forestgreen', 'black', 'mediumseagreen', 'darkkhaki', 'maroon', 'firebrick', 'darkgreen', 'firebrick', 'tomato', 'royalblue', 'brown', 'darkolivegreen', 'olivedrab', 'purple', 'lightcoral', 'darkorange']
 
     return matplotlib.colors.to_rgba(nat_colors[natid-1])
+
 
 def nationality_id_to_name_str(natid, full_name=False):
     natid = int(natid)
@@ -109,6 +33,15 @@ def nationality_id_to_name_str(natid, full_name=False):
     nat_name_long = ['Australia', 'England', 'India', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies', 'Sri Lanka', 'Bangladesh', 'Zimbabwe', 'Canada', 'USA', 'Kenya', 'Scotland', 'Ireland', 'UAE', 'Bermuda', 'Netherlands']
 
     return nat_name_long[natid-1] if full_name else nat_name_short[natid-1]
+
+def age_id_to_str(age_type):
+    age_types = {0: 'all', 1: 'seniors', 2: 'youths'}
+
+    if isinstance(age_type, str):
+        if age_type.isdigit():
+            return age_types[age_type]
+    elif isinstance(age_type, int):
+        return age_types[age_type]
 
 
 def skill_word_to_index(skill_w, skill_word_type='full'):
@@ -128,14 +61,9 @@ def skill_word_to_index(skill_w, skill_word_type='full'):
     return skill_n
 
 
-def get_player_page(player_id, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
-
-    browser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
-    page = str(browser.parsed)
+def get_player_page(player_id):
+    browser.rbrowser.open('https://www.fromthepavilion.org/player.htm?playerId={}'.format(player_id))
+    page = str(browser.rbrowser.parsed)
 
     return page
 
@@ -151,12 +79,7 @@ def get_player_spare_ratings(player_df, col_name_len='full'):
 
     return player_df['Rating'] - skill_rating_sum
 
-def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
-
+def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_file = False, normalize_age=False, additional_columns=False, overwrite_method='append', ind_level=0):
     if int(teamid) in range(3001, 3019) or int(teamid) in range(3021, 3039) and squad_type == 'domestic_team':
         squad_type = 'national_team'
 
@@ -173,21 +96,20 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
         squad_url = 'https://www.fromthepavilion.org/natsquad.htm?squadViewId=2&orderBy=15&teamId={}&playerType={}'
 
     squad_url = squad_url.format(teamid, age_group)
-    browser.open(squad_url)
-    page_tmp = str(browser.parsed)
+    browser.rbrowser.open(squad_url)
+    page_tmp = str(browser.rbrowser.parsed)
     page_tmp = page_tmp[page_tmp.index('middle-noright'):]
     team_name = page_tmp[page_tmp.index('teamId={}">'.format(teamid)):page_tmp.index('teamId={}">'.format(teamid))+30]
     team_name = team_name.split('>')[1].split('<')[0]
 
     playerids = []
     team_players = pd.DataFrame()
-
     try:
-        log_event('Downloading players from teamid {}'.format(teamid, squad_url), ind_level=ind_level)
-        team_players = pd.read_html(str(browser.parsed))[0]
-        playerids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.parsed))][::2]
+        CoreUtils.log_event('Downloading players from teamid {} (Age: {})'.format(teamid, age_id_to_str(age_group)), ind_level=ind_level)
+        team_players = pd.read_html(str(browser.rbrowser.parsed))[0]
+        playerids = [x[9:] for x in re.findall('playerId=[0-9]+', str(browser.rbrowser.parsed))][::2]
     except ValueError:
-        log_event('Error saving teamid: {}. No dataframe found in url'.format(teamid), ind_level=ind_level)
+        CoreUtils.log_event('Error saving teamid: {}. No dataframe found in url'.format(teamid), ind_level=ind_level)
         raise ValueError
 
     team_players.insert(loc=0, column='TeamID', value=teamid)
@@ -196,10 +118,10 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
     team_players['Wage'] = team_players['Wage'].str.replace('\D+', '')
 
     if squad_type == 'domestic_team':
-        player_nationalities = [x[-2:].replace('=', '') for x in re.findall('regionId=[0-9]+', str(browser.parsed))][-len(playerids):]
+        player_nationalities = [x[-2:].replace('=', '') for x in re.findall('regionId=[0-9]+', str(browser.rbrowser.parsed))][-len(playerids):]
         team_players['Nat'] = player_nationalities
 
-        #log_event('Saved {} players to {}'.format(len(playerids), to_file), ind_level=1)
+        #CoreUtils.log_event('Saved {} players to {}'.format(len(playerids), to_file), ind_level=1)
 
     if normalize_age:
         team_players['Age'] = normalize_age_list(team_players['Age'])
@@ -210,35 +132,55 @@ def get_team_players(teamid, age_group='all', squad_type='domestic_team', to_fil
     team_players.drop(columns=[x for x in ['#', 'Unnamed: 18'] if x in team_players.columns], inplace=True)
 
     if to_file:
-        pd.DataFrame.to_csv(team_players, to_file, index=False, float_format='%.2f')
+        if os.path.exists(to_file):
+            old_file = pd.read_csv(to_file)
+        else:
+            old_file = pd.DataFrame()
+        if overwrite_method == 'append':
+            file_data = pd.concat([old_file, team_players])
+            file_data = file_data.sort_values(['PlayerID', 'Rating'], ascending=True).drop_duplicates(['PlayerID', 'Rating'], keep='first')
+        elif overwrite_method == 'overwrite':
+            file_data = team_players
+
+        pd.DataFrame.to_csv(file_data, to_file, index=False, float_format='%.2f')
 
     return team_players
 
-def get_current_ftp_time(return_type='inttuple'):
-    current_time = datetime.datetime.utcnow()
-    if return_type == 'datetime':
-        return current_time
-    elif return_type == 'inttuple':
-        return (int(current_time.weekday()), int(current_time.hour), (current_time.minute))
+def get_team_page(teamid):
+    browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
+    page = str(browser.rbrowser.parsed)
 
+    return page
 
-def get_event_runtime_from_country(country_name, event, return_type='datetime', use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
+def get_team_region(teamid, return_type='regionid', page=False):
+    if not page:
+        browser.rbrowser.open('https://www.fromthepavilion.org/club.htm?teamId={}'.format(teamid))
+        page = str(browser.rbrowser.parsed)
 
-    country_offsets = [('Australia', [0, 0]), ('Bangladesh', [2, 0]), ('India', [4, 30]), ('Pakistan', [5, 0]), ('Sri Lanka', [5, 30]), ('South Africa', [8, 0]), ('Scotland', [9, 0]), ('England', [10, 0]), ('Ireland', [11, 30]), ('Netherlands', [12, 0]), ('Zimbabwe', [13, 0]), ('West Indies', [15, 0]), ('Canada', [16, 0]), ('New Zealand', [22, 0])]
+    country_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18]
+    senior_country_ids = [id + 3000 for id in country_ids]
+    youth_country_ids = [id + 3020 for id in country_ids]
 
-    selected_offset = country_offsets[[x[0] for x in country_offsets].index(country_name)]
-    current_time = get_current_ftp_time('inttuple')
+    if teamid in senior_country_ids + youth_country_ids:
+        return teamid
 
+    truncated_page = page[page.index('<th>Country</th>'):][:200]
+    country_id = int(''.join([x for x in re.findall('regionId=[0-9]+', truncated_page)[0] if x.isdigit()]))
 
+    if return_type == 'regionid':
+        return country_id
+    elif return_type == 'name':
+        return nationality_id_to_name_str(country_id, True)
 
+def country_game_start_time(region_id):
+    region_names = ['Australia', 'England', 'India', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies', 'Sri Lanka', 'Bangladesh', 'Zimbabwe', 'Canada', 'Scotland', 'Ireland', 'Netherlands']
+    country_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18]
+    region_starttimes = ['00:00', '10:00', '04:30', '22:00', '05:00', '08:00', '15:00', '05:30', '02:00', '13:00', '16:00', '09:00', '11:30', '12:00']
 
-
-
-
+    if isinstance(type(region_id), type(int)):
+        return region_starttimes[country_ids.index(region_id)]
+    elif isinstance(type(region_id), type(str)):
+        return region_starttimes[region_names.index(region_id)]
 
 def get_player_wage(player_id, page=False, normalize_wage=False):
     if not page:
@@ -316,11 +258,7 @@ def get_player_summary(player_id, page=False):
     return summary_dir
 
 
-def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = check_login(browser, return_browser=True)
-
+def get_league_teamids(leagueid, league_format='league', knockout_round=None, ind_level=0):
     if league_format == 'knockout':
         if not isinstance(knockout_round, None):
             round_n = knockout_round
@@ -329,7 +267,7 @@ def get_league_teamids(leagueid, league_format='league', knockout_round=None, in
     else:
         round_n = 1
 
-    log_event('Searching for teamids in leagueid {} - round {}'.format(leagueid, round_n, ind_level=ind_level))
+    CoreUtils.log_event('Searching for teamids in leagueid {} - round {}'.format(leagueid, round_n, ind_level=ind_level))
     gameids = get_league_gameids(leagueid, round_n=round_n, league_format=league_format)
     teamids = []
     for gameid in gameids:
@@ -337,23 +275,18 @@ def get_league_teamids(leagueid, league_format='league', knockout_round=None, in
         teamids.append(team1)
         teamids.append(team2)
 
-    log_event('Successfully found {} teams.'.format(len(teamids)), ind_level=ind_level)
+    CoreUtils.log_event('Successfully found {} teams.'.format(len(teamids)), ind_level=ind_level)
 
     return teamids
 
 
-def get_league_gameids(leagueid, round_n='latest', league_format='league', use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
-
+def get_league_gameids(leagueid, round_n='latest', league_format='league'):
     if round_n == 'latest':
         round_n = 1
 
     if league_format == 'league':
-        browser.open('https://www.fromthepavilion.org/leaguefixtures.htm?lsId={}'.format(leagueid))
-        league_page = str(browser.parsed)
+        browser.rbrowser.open('https://www.fromthepavilion.org/leaguefixtures.htm?lsId={}'.format(leagueid))
+        league_page = str(browser.rbrowser.parsed)
         league_rounds = int(max([int(r[6:]) for r in re.findall('Round [0-9]+', league_page)]))
         gameids = [g[7:] for g in re.findall('gameId=[0-9]+', league_page)]
 
@@ -370,14 +303,14 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league', use_b
         return unique_gameids[round_start_ind:round_end_ind]
 
     elif league_format == 'knockout':
-        browser.open('https://www.fromthepavilion.org/cupfixtures.htm?cupId={}&currentRound=true'.format(leagueid))
-        fixtures = pd.read_html(str(browser.parsed))[0]
+        browser.rbrowser.open('https://www.fromthepavilion.org/cupfixtures.htm?cupId={}&currentRound=true'.format(leagueid))
+        fixtures = pd.read_html(str(browser.rbrowser.parsed))[0]
         for n, roundname in enumerate(fixtures.columns):
             if roundname[:7] == 'Round {}'.format(round_n):
                 round_column_name = roundname
                 break
 
-        games_on_page = re.findall('gameId=.{0,150}', str(browser.parsed))
+        games_on_page = re.findall('gameId=.{0,150}', str(browser.rbrowser.parsed))
         requested_games = []
         for game in fixtures[round_column_name][::2 ** (round_n - 1)]:
             team1, team2 = game.split('vs')
@@ -399,35 +332,25 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league', use_b
 
 
 
-def get_game_scorecard_table(gameid, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
-
-    browser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
-    scorecard_tables = pd.read_html(str(browser.parsed))
-    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
+def get_game_scorecard_table(gameid, ind_level=0):
+    browser.rbrowser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
+    scorecard_tables = pd.read_html(str(browser.rbrowser.parsed))
+    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.rbrowser.parsed))]
     home_team_id, away_team_id = page_teamids[21], page_teamids[22]
     scorecard_tables[-2].iloc[0][1] = home_team_id
     scorecard_tables[-2].iloc[1][1] = away_team_id
 
-    log_event('Downloaded scorecard for game {}'.format(gameid), ind_level=ind_level)
+    CoreUtils.log_event('Downloaded scorecard for game {}'.format(gameid), ind_level=ind_level)
 
     return scorecard_tables
 
 
-def get_game_teamids(gameid, ind_level=0, use_browser=False):
-    global browser
-    if use_browser:
-        browser = use_browser
-    browser = check_login(browser, return_browser=True)
-
-    browser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
-    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.parsed))]
+def get_game_teamids(gameid, ind_level=0):
+    browser.rbrowser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
+    page_teamids = [''.join([c for c in x if c.isdigit()]) for x in re.findall('teamId=[0-9]+', str(browser.rbrowser.parsed))]
     home_team_id, away_team_id = page_teamids[22], page_teamids[23]
 
-    log_event('Found teams for game {} - {} vs {}'.format(gameid, home_team_id, away_team_id), ind_level=ind_level)
+    CoreUtils.log_event('Found teams for game {} - {} vs {}'.format(gameid, home_team_id, away_team_id), ind_level=ind_level)
 
     return (home_team_id, away_team_id)
 
@@ -474,7 +397,25 @@ def normalize_age_list(player_ages, reverse=False):
 
     return [str(age) if reverse else float(age) for age in new_ages]
 
-def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1, max_weeks_between_training=0):
+def generate_db_time_pairs(database_entries='all'):
+    if database_entries == 'all':
+        database_entries = PlayerDatabase.database_entries_from_directory('working_directory')
+
+    dbt_pairs = []
+    for database_name in database_entries.keys():
+        sequential_entries = []
+        for season in database_entries[database_name].keys():
+            for week in database_entries[database_name][season]:
+                sequential_entries.append(season + '.' + week)
+
+        for entry in range(len(sequential_entries)-1):
+            entryminus1 = [int(''.join([n for n in x if n.isdigit()])) for x in sequential_entries[entry-1].split('.')]
+            entry = [int(''.join([n for n in x if n.isdigit()])) for x in sequential_entries[entry].split('.')]
+            dbt_pairs.append((database_name, entryminus1, entry))
+
+    return dbt_pairs
+
+def catagorise_training(db_time_pairs='all', min_data_include=5, std_highlight_limit=1, max_weeks_between_training=1):
     '''
     Catagorises a set of players from database/week pairs into a dictionary of
     lists sorted by training/age. Used to view e.g. The average ratdif of all
@@ -486,13 +427,19 @@ def catagorise_training(db_time_pairs, min_data_include=1, std_highlight_limit=1
         min_data_include = minimum points of data to plot for an age
         std_highlight_label = how wide the highlighted section should be for an age, by std
     '''
+    if db_time_pairs == 'all':
+        db_time_pairs = generate_db_time_pairs(database_entries='all')
+
+    db_time_pairs = [dbt for dbt in db_time_pairs if ((dbt[1][0] * 15) + dbt[1][1]) - ((dbt[2][0] * 15) + dbt[2][1]) <= max_weeks_between_training]
+
     training_data_collection = []
     for dbtpair in db_time_pairs:
         training_data_week = ratdif_from_weeks(dbtpair[0], dbtpair[1], dbtpair[2])
-        training_data_week = training_data_week[(training_data_week['Training'] != 'Rest') & (training_data_week['Ratdif'] > 0)]
-        non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
+        if 'Training' in training_data_week.columns:
+            training_data_week = training_data_week[(training_data_week['Training'] != 'Rest') & (training_data_week['Ratdif'] > 0)]
+            non_hidden_training = training_data_week[training_data_week['Training'] != 'Hidden']
 
-        training_data_collection.append(non_hidden_training)
+            training_data_collection.append(non_hidden_training)
 
     all_training_data = pd.concat(training_data_collection)
     all_training_data.drop_duplicates(['PlayerID', 'Rating'], inplace=True)
