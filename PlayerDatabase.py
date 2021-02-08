@@ -510,16 +510,16 @@ def split_database_events(database_name):
         for teamid, agegroup in teams_by_region[region_id]:
             if agegroup in ['0', '1', 'all', 'youths']:
                 day_of_week = [2]
-                age_type = 1
+                age_type = 'youths'
                 event_run_time_tuple = (run_hour, run_minute, day_of_week)
                 runtime = next_run_time(event_run_time_tuple) + datetime.timedelta(minutes=5)
-                split_event_list.append((runtime, database_name, (teamid), age_type, event_run_time_tuple))
+                split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
             if agegroup in ['0', '2', 'all', 'seniors']:
                 day_of_week = [0]
-                age_type = 2
+                age_type = 'seniors'
                 event_run_time_tuple = (run_hour, run_minute, day_of_week)
                 runtime = next_run_time(event_run_time_tuple) + datetime.timedelta(minutes=5)
-                split_event_list.append((runtime, database_name, (teamid), age_type, event_run_time_tuple))
+                split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
 
     return split_event_list
 
@@ -568,6 +568,7 @@ def watch_database_list(database_list, ind_level=0):
             master_database_stack.append(db_event)
 
     master_database_stack.sort(key=lambda x : x[0])
+    return master_database_stack
 
     while True:
         current_datetime = datetime.datetime.now(datetime.timezone.utc)
