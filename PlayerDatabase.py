@@ -465,12 +465,8 @@ def next_run_time(time_tuple, extra_time_delta = datetime.timedelta(minutes=5)):
     CoreUtils.log_event(str(time_tuple))
     db_scrape_hour, db_scrape_minute, db_days = time_tuple
 
-    #TEST TEST TEST TEST
-
     if int(db_scrape_hour) >= 12:
         db_days = [(int(n) - 1) % 7 for n in db_days]
-
-    #TEST TEST TEST TEST
 
     weekly_runtimes = []
     for day in db_days:
@@ -512,13 +508,13 @@ def split_database_events(database_name):
         run_hour, run_minute = run_time.split(':')
         for teamid, agegroup in teams_by_region[region_id]:
             if agegroup in ['0', '1', 'all', 'youths']:
-                day_of_week = [2]
+                day_of_week = [0]
                 age_type = 'youths'
                 event_run_time_tuple = (run_hour, run_minute, day_of_week)
                 runtime = next_run_time(event_run_time_tuple)
                 split_event_list.append([runtime, database_name, (teamid), age_type, event_run_time_tuple])
             if agegroup in ['0', '2', 'all', 'seniors']:
-                day_of_week = [0]
+                day_of_week = [2]
                 age_type = 'seniors'
                 event_run_time_tuple = (run_hour, run_minute, day_of_week)
                 runtime = next_run_time(event_run_time_tuple)
