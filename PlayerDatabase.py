@@ -16,6 +16,7 @@ import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
 import pandas as pd
 import shutil
+from glob import glob
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
 import seaborn as sns; sns.set_theme(color_codes=True)
@@ -260,12 +261,14 @@ def load_entry(database, season, week, groupid, normalize_age=True, ind_level=0)
     else:
         CoreUtils.log_event('Error loading database entry (file not found): {}'.format(data_file), logtype='full', logfile=log_files, ind_level=ind_level)
 
-def transfer_saved_until(database_name):
-    latest_season = [x for x in os.listdir(database_name + '/') if re.match('s[0-9]+', x)][-1]
-    latest_week = [x for x in os.listdir(database_name + '/' + latest_season + '/') if re.match('w[0-9]+', x)][-1]
-    files_in_latest_week = [span.split(' - ') for span in os.listdir(database_name + '/' + latest_season + '/' + latest_week + '/') if ' - ' in span]
+def transfer_saved_until(database_name, ):
+    PATH = database_name + '/'
+    EXT = '*.csv'
 
-    file_datetimes = [datetime.datetime.strptime(fnames[-1][:-4], '%d %b %Y %H:%M') for fnames in files_in_latest_week]
+    all_csv_files = [file for path, subdir, files in os.walk(PATH) for file in glob(os.path.join(path, EXT))]
+    file_dates = [fname.split('/')[-1][:-4].split(' - ')[1] for fname in all_csv_files]
+
+    file_datetimes = [datetime.datetime.strptime(timestamp, '%d %b %Y %H:%M') for timestamp in file_dates]
 
     saved_until_time = max(file_datetimes)
     saved_until_time = saved_until_time.replace(tzinfo=pytz.UTC) - datetime.timedelta(minutes=2)
@@ -467,7 +470,6 @@ def next_run_time(time_tuple, extra_time_delta = datetime.timedelta(minutes=5)):
     if isinstance(time_tuple, type(None)):
         return current_datetime
 
-    CoreUtils.log_event(str(time_tuple))
     db_scrape_hour, db_scrape_minute, db_days = time_tuple
 
     if int(db_scrape_hour) >= 12:
@@ -489,7 +491,10 @@ def next_run_time(time_tuple, extra_time_delta = datetime.timedelta(minutes=5)):
             final_runtime = runtime
             break
     else:
-        final_runtime = weekly_runtimes[0]
+        if weekly_runtimes[0] < datetime.datetime.utcnow().replace(tzinfo=pytz.UTC):
+            final_runtime = weekly_runtimes[0] + datetime.timedelta(days=7)
+        else:
+            final_runtime = weekly_runtimes[0]
 
     return final_runtime + extra_time_delta
 
@@ -599,7 +604,7 @@ def watch_database_list(database_list, ind_level=0):
                 time.sleep(seconds_between_attempts)
 
         if current_attempt < attempts_before_exiting:
-            CoreUtils.log_event('Successfully downloaded database {}'.format(master_database_stack[0][1]), ind_level=ind_level+1)
+            CoreUtils.log_event('Successfully downloaded {}'.format(next_database_download), ind_level=ind_level+1)
             if master_database_stack[0][1] == 'market-archive':
                 db_next_runtime = transfer_saved_until(master_database_stack[0][1])
             else:

@@ -1,5 +1,6 @@
 import datetime
 import werkzeug
+import pytz
 werkzeug.cached_property = werkzeug.utils.cached_property
 from robobrowser import RoboBrowser
 
@@ -65,7 +66,8 @@ def initialize_browser():
 
 
 def log_event(logtext, logtype='full', logfile='default', ind_level=0):
-    current_time = datetime.datetime.now()
+    current_time = datetime.datetime.utcnow().replace(tzinfo=pytz.UTC)
+    formatted_current_time = current_time.strftime('%d/%m/%Y-%H:%M:%S%z')
     if type(logfile) == str:
         logfile = [logfile]
 
@@ -73,10 +75,10 @@ def log_event(logtext, logtype='full', logfile='default', ind_level=0):
         if logf == 'default':
             logf = 'ftp_archiver_output_history.log'
         if logtype in ['full', 'console']:
-            print('[{}] '.format(current_time.strftime('%d/%m/%Y-%H:%M:%S')) + '\t' * ind_level + logtext)
+            print('[{}] '.format(formatted_current_time) + '\t' * ind_level + logtext)
         if logtype in ['full', 'file']:
             with open(logf, 'a') as f:
-                f.write('[{}] '.format(current_time.strftime('%d/%m/%Y-%H:%M:%S')) + logtext + '\n')
+                f.write('[{}] '.format(formatted_current_time) + logtext + '\n')
 
         logtype = 'file' # to prevent repeated console outputs when multiple logfiles are specified
 
