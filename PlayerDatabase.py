@@ -572,7 +572,6 @@ def watch_database_list(database_list, ind_level=0):
             master_database_stack.append(db_event)
 
     master_database_stack.sort(key=lambda x : x[0])
-    return master_database_stack
 
     while True:
         next_database_download = master_database_stack[0]
