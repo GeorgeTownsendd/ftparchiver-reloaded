@@ -458,7 +458,7 @@ def calculate_player_skillshifts(player_data1, player_data2):
 
 
 def next_run_time(time_tuple, extra_time_delta = datetime.timedelta(minutes=5)):
-    current_datetime = datetime.datetime.now(datetime.timezone.utc)# - datetime.timedelta(days=1)
+    current_datetime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)# - datetime.timedelta(days=1)
     if isinstance(time_tuple, type(None)):
         return current_datetime
 
@@ -559,7 +559,7 @@ def watch_database_list(database_list, ind_level=0):
         else:
             CoreUtils.log_event('{}: Loaded from file'.format(database_name), ind_level=ind_level + 1)
             if conf_data[0]['database_type'] == 'transfer_market_search':
-                db_first_runtime = datetime.datetime.now(datetime.timezone.utc)
+                db_first_runtime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc, seconds=0, microseconds=0)
                 db_event = [db_first_runtime, database_name, None, None, event_run_time_tuple]
             else:
                 db_first_runtime = next_run_time(event_run_time_tuple)
@@ -570,7 +570,8 @@ def watch_database_list(database_list, ind_level=0):
     return master_database_stack
 
     while True:
-        current_datetime = datetime.datetime.now(datetime.timezone.utc)
+        next_database_download = master_database_stack[0]
+        current_datetime = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
         seconds_until_next_run = int((master_database_stack[0][0] - current_datetime).total_seconds())
         if seconds_until_next_run > 0:
             hours_until_next_run = seconds_until_next_run // (60 * 60)
@@ -585,7 +586,7 @@ def watch_database_list(database_list, ind_level=0):
 
         while current_attempt <= attempts_before_exiting:
             try:
-                download_database(master_database_stack[0][1])
+                download_database(next_database_download[1], download_teams_whitelist=next_database_download[2], age_override=next_database_download[3])
                 if current_attempt > 0:
                     CoreUtils.log_event('Completed successfully after {} failed attempts'.format(current_attempt), ind_level=ind_level)
                 break
