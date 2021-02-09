@@ -29,6 +29,11 @@ def nationality_id_to_rgba_color(natid):
 
 def nationality_id_to_name_str(natid, full_name=False):
     natid = int(natid)
+    if natid > 3000 and natid < 3020:
+        natid -= 3000
+    elif natid > 3020 and natid < 3040:
+        natid -= 3020
+
     nat_name_short = ['AUS', 'ENG', 'IND', 'NZL', 'PAK', 'SA', 'WI', 'SRI', 'BAN', 'ZWE', 'CAN', 'USA', 'KEN', 'SCO', 'IRE', 'UAE', 'BER', 'NL']
     nat_name_long = ['Australia', 'England', 'India', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies', 'Sri Lanka', 'Bangladesh', 'Zimbabwe', 'Canada', 'USA', 'Kenya', 'Scotland', 'Ireland', 'UAE', 'Bermuda', 'Netherlands']
 
@@ -330,7 +335,17 @@ def get_league_gameids(leagueid, round_n='latest', league_format='league'):
 
         return requested_game_ids
 
+def player_ids_from_pagestr(page, unique_only=False):
+    player_ids = [pid.split('=')[1] for pid in re.findall('playerId=[0-9]+', page)]
+    if unique_only:
+        unique_player_ids = []
+        for player_id in player_ids:
+            if player_id not in unique_player_ids:
+                unique_player_ids.append(player_id)
 
+        return unique_player_ids
+    else:
+        return player_ids
 
 def get_game_scorecard_table(gameid, ind_level=0):
     browser.rbrowser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
@@ -344,6 +359,60 @@ def get_game_scorecard_table(gameid, ind_level=0):
 
     return scorecard_tables
 
+def get_cup_gameids(cupId):
+    browser.rbrowser.open('https://www.fromthepavilion.org/worldcupgroup.htm?cupId={}&group=1'.format(cupId))
+    group1_pagestr = str(browser.rbrowser.parsed)
+    group1_games = [gameid.split('=')[1] for gameid in re.findall('gameId=[0-9]+', group1_pagestr)][::3]
+
+    browser.rbrowser.open('https://www.fromthepavilion.org/worldcupgroup.htm?cupId={}&group=2'.format(cupId))
+    group2_pagestr = str(browser.rbrowser.parsed)
+    group2_games = [gameid.split('=')[1] for gameid in re.findall('gameId=[0-9]+', group2_pagestr)][::3]
+
+    browser.rbrowser.open('https://www.fromthepavilion.org/worldcupfinals.htm?cupId={}'.format(cupId))
+    finals_pagestr = str(browser.rbrowser.parsed)
+    finals_games = [gameid.split('=')[1] for gameid in re.findall('gameId=[0-9]+', finals_pagestr)][::3]
+
+    return group1_games, group2_games, finals_games
+
+
+def get_game_lineups(gameid, ind_level=0):
+    browser.rbrowser.open('https://www.fromthepavilion.org/scorecard.htm?gameId={}'.format(gameid))
+    pagestr = str(browser.rbrowser.parsed)
+
+    player_ids = player_ids_from_pagestr(pagestr, unique_only=False)[::2]
+    team1_players = player_ids[:11]
+
+    second_innings_bowlers = 0
+    for pid in player_ids[::-1]:
+        if pid not in team1_players:
+            break
+        else:
+            second_innings_bowlers += 1
+    team2_players = player_ids[-(11 + second_innings_bowlers):-second_innings_bowlers]
+
+    CoreUtils.log_event('Downloaded team lineups for game {}'.format(gameid))
+
+    return team1_players, team2_players
+
+
+def get_game_ratings_fantasy_tables(gameid, return_type='all', ind_level=0):
+    browser.rbrowser.open('https://www.fromthepavilion.org/ratings.htm?gameId={}'.format(gameid))
+    pagestr = str(browser.rbrowser.parsed)
+    match_ratings_table, fantasy_points_table = pd.read_html(pagestr)[:2]
+
+    fantasy_points_playerids = player_ids_from_pagestr(pagestr, unique_only=True)
+    fantasy_points_table.insert(1, 'PlayerID', fantasy_points_playerids)
+
+    CoreUtils.log_event('Downloaded ratings and fantasy points for game {}'.format(gameid))
+
+    if return_type == 'fantasy':
+        return fantasy_points_table
+    elif return_type == 'ratings':
+        return match_ratings_table
+    else:
+        return fantasy_points_table, match_ratings_table
+
+
 
 def get_game_teamids(gameid, ind_level=0):
     browser.rbrowser.open('https://www.fromthepavilion.org/gamedetails.htm?gameId={}'.format(gameid))
@@ -353,6 +422,28 @@ def get_game_teamids(gameid, ind_level=0):
     CoreUtils.log_event('Found teams for game {} - {} vs {}'.format(gameid, home_team_id, away_team_id), ind_level=ind_level)
 
     return (home_team_id, away_team_id)
+
+def get_national_touring_party(lsid, teamid):
+    browser.rbrowser.open('https://www.fromthepavilion.org/nattourselections.htm?lsId={}&teamId={}'.format(lsid, teamid))
+    pagestr = str(browser.rbrowser.parsed)
+
+    touring_party_table = pd.read_html(pagestr)[1]
+    touring_party_table.drop(columns=['#'], inplace=True)
+    touring_party_playerids = player_ids_from_pagestr(pagestr, unique_only=True)
+    touring_party_table.insert(1, 'PlayerID', touring_party_playerids)
+    touring_party_table.insert(len(touring_party_table.columns), 'TeamID', teamid)
+    touring_party_table.insert(len(touring_party_table.columns), 'Team', nationality_id_to_name_str(teamid, full_name=True))
+
+    return touring_party_table
+
+def get_touring_players(lsid, teamids):
+    touring_players = []
+    for teamid in teamids:
+        team_players = get_national_touring_party(lsid, teamid)
+        touring_players.append(team_players)
+    all_touring_players = pd.concat(touring_players)
+
+    return all_touring_players
 
 
 def normalize_age_list(player_ages, reverse=False):
