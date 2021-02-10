@@ -39,6 +39,7 @@ def age_id_to_str(age_type):
 
     if isinstance(age_type, str):
         if age_type.isdigit():
+            age_type = int(age_type)
             return age_types[age_type]
     elif isinstance(age_type, int):
         return age_types[age_type]
