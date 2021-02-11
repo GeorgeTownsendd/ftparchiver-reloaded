@@ -8,20 +8,20 @@ import PlayerDatabase as PlayerDatabase
 import PresentData as PresentData
 import os
 import re
+import pandas as pd
 
-if __name__ == '__main__':
+def fantasy_point_analysis():
     '''cupId = 874
-    group1_lsId = 97616
-    group2_lsId = 97617
-    group1 = [3009, 3007, 3003, 3018, 3015, 3008]
-    group2 = [3017, 3004, 3001, 3011, 3013, 3002]''' #Current World Cup
-    import pandas as pd
+     group1_lsId = 97616
+     group2_lsId = 97617
+     group1 = [3009, 3007, 3003, 3018, 3015, 3008]
+     group2 = [3017, 3004, 3001, 3011, 3013, 3002]'''  # Current World Cup
 
     cupId = 853
     group1_lsId = 92646
     group2_lsId = 92647
     group1_teams = [3017, 3013, 3005, 3003, 3008, 3006]
-    group2_teams = [3015, 3018, 3001, 3007, 3002, 3009] #s45 world cup
+    group2_teams = [3015, 3018, 3001, 3007, 3002, 3009]  # s45 world cup
 
     group1_players = FTPUtils.get_touring_players(group1_lsId, group1_teams)
     group2_players = FTPUtils.get_touring_players(group2_lsId, group2_teams)
@@ -50,8 +50,31 @@ if __name__ == '__main__':
     allplayers['Age'] = FTPUtils.normalize_age_list(FTPUtils.normalize_age_list(allplayers['Age']), reverse=True)
     allplayers.insert(len(allplayers.columns), 'Total Fantasy Points', allplayers_ordered_fantasy_points)
 
+def verify_match_ratings(gameid, ratings_limit):
+    match_ratings = FTPUtils.get_game_ratings_fantasy_tables(gameid, 'ratings')
+    team_names = [team for team in match_ratings.columns[1:3]]
+    overall_ratings = [int(overall_rating) for overall_rating in match_ratings.iloc[6][1:3]]
+    within_limits = {}
+
+    for n, team in enumerate(team_names):
+        if overall_ratings[n] > ratings_limit:
+            within_limits[team] = False
+        else:
+            within_limits[team] = True
+
+    return within_limits
+
+def verify_league_round_ratings(leagueid, round_n, ratings_limit):
+    gameids = FTPUtils.get_league_gameids(leagueid, round_n)
+    result_strings = []
+
+    for gameid in gameids:
+        team_ids = FTPUtils.get_game_teamids(gameid)
+        game_ratings = verify_match_ratings(gameid, ratings_limit)
 
 
+
+if __name__ == '__main__':
     #PlayerDatabase.download_database('market-archive')
     #PresentData.save_team_training_graphs(4791, 'teams-weekly')
     #unique_database_list = list(set(['nzl-od-34', 'u16-weekly', 'market-archive', 'u21-national-squads', 'teams-weekly', 'nzl-t20-33', 'sa-od-42', 'PGT', 'u21-national-squads']))
