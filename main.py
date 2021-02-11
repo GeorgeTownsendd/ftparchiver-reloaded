@@ -10,6 +10,10 @@ import os
 import re
 import pandas as pd
 
+team_franches = {'Allmänna Idrottsklubben': 'QG', 'Hasraz': 'PZ', 'Pakshaheen': 'MS', 'Dead Stroker': 'MS', 'Caterham Crusaders': 'KK', 'Shahzaday11': 'LCF', 'London Spirit': 'KK', 'TRAL TIGERS': 'IU', 'Better Late Than Pregnant': 'LCF', 'Maiden Over CC': 'IU', 'The Hybrid Dolphins': 'PZ', "South London's Number One CC": 'PZ', 'Al Khobar Falcons': 'IU', 'ST 96': 'PZ', 'Jacksons Barbers': 'IU', 'Nepali Gaints': 'IU', 'The Humpty Elephants': 'MS', 'Legend Super Chicken Samurai': 'MS', 'Blade Brakers': 'LCF', 'Harrow CC': 'PZ', 'Afghan=Good': 'QG', 'ChePu 206': 'QG', 'United XI': 'QG', 'Afridi XI': 'KK', 'Bottybotbots': 'QG', "Lachlan's Tigers": 'MS', 'Mohun Bagan': 'KK', 'Young Snipers': 'KK', 'SBClub': 'MS', 'Jhelum Lions': 'KK', 'Wolfberries Too': 'LCF', 'Cover point': 'LCF', 'blackcat': 'QG', 'Hasraz A': 'PZ', 'Shorkot Stallions': 'IU', 'Indian Capers': 'LCF'}
+franchise_name_list = list(set([team_franches[f] for f in team_franches.keys()]))
+league_ids = False
+
 def fantasy_point_analysis():
     '''cupId = 874
      group1_lsId = 97616
@@ -95,7 +99,7 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
                 game_loser = (team_names[0], team_ids[0])
 
         if game_adjusted:
-            formatted_result_string = game_result_string + '.'
+            formatted_result_string = game_result_string + '. (result already overturned)'
         else:
             formatted_result_string = game_result_string
             if not team_within_limits[game_winner[0]]:
@@ -109,7 +113,12 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
                 else:
                     formatted_result_string += ' despite an overrating by {}.'.format(game_loser[0])
 
-        result_strings.append(formatted_result_string)
+        for team in [game_winner[0], game_loser[0]]:
+            if team in formatted_result_string:
+                formatted_result_string = formatted_result_string.replace(team, '{} ({})'.format(team, team_franches[team]))
+
+        game_title = '[{}] {} ({}) v {} ({}): '.format(gameid, team_names[0], team_ids[0], team_names[1], team_ids[1])
+        result_strings.append(game_title + formatted_result_string)
 
     return result_strings
 
