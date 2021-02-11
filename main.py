@@ -69,8 +69,49 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
     result_strings = []
 
     for gameid in gameids:
+        team_within_limits = verify_match_ratings(gameid, ratings_limit)
+        team_names = [team for team in team_within_limits.keys()]
         team_ids = FTPUtils.get_game_teamids(gameid)
-        game_ratings = verify_match_ratings(gameid, ratings_limit)
+        game_result_string = FTPUtils.get_game_scorecard_table(gameid)[0][1][0]
+        game_winner, game_loser = None, None
+        game_adjusted = None
+        if team_names[0] in game_result_string:
+            if 'adjusted' in game_result_string:
+                game_adjusted = True
+                game_winner = (team_names[1], team_ids[1])
+                game_loser = (team_names[0], team_ids[0])
+            else:
+                game_adjusted = False
+                game_winner = (team_names[0], team_ids[0])
+                game_loser = (team_names[1], team_ids[1])
+        elif team_names[1] in game_result_string:
+            if 'adjusted' in game_result_string:
+                game_adjusted = True
+                game_winner = (team_names[0], team_ids[0])
+                game_loser = (team_names[1], team_ids[1])
+            else:
+                game_adjusted = False
+                game_winner = (team_names[1], team_ids[1])
+                game_loser = (team_names[0], team_ids[0])
+
+        if game_adjusted:
+            formatted_result_string = game_result_string + '.'
+        else:
+            formatted_result_string = game_result_string
+            if not team_within_limits[game_winner[0]]:
+                if team_within_limits[game_loser[0]]:
+                    formatted_result_string += ', but the result will be overturned to a win for {} due to overrating.'.format(game_loser[0])
+                else:
+                    formatted_result_string += ', and the result will stand due to an overrating by both teams.'
+            else:
+                if team_within_limits[game_loser[0]]:
+                    formatted_result_string += '. Both teams fell within the rating limits.'
+                else:
+                    formatted_result_string += ' despite an overrating by {}.'.format(game_loser[0])
+
+        result_strings.append(formatted_result_string)
+
+    return result_strings
 
 
 
