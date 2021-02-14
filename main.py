@@ -12,7 +12,8 @@ import pandas as pd
 
 team_franches = {'Allmänna Idrottsklubben': 'QG', 'Hasraz': 'PZ', 'Pakshaheen': 'MS', 'Dead Stroker': 'MS', 'Caterham Crusaders': 'KK', 'Shahzaday11': 'LCF', 'London Spirit': 'KK', 'TRAL TIGERS': 'IU', 'Better Late Than Pregnant': 'LCF', 'Maiden Over CC': 'IU', 'The Hybrid Dolphins': 'PZ', "South London's Number One CC": 'PZ', 'Al Khobar Falcons': 'IU', 'ST 96': 'PZ', 'Jacksons Barbers': 'IU', 'Nepali Gaints': 'IU', 'The Humpty Elephants': 'MS', 'Legend Super Chicken Samurai': 'MS', 'Blade Brakers': 'LCF', 'Harrow CC': 'PZ', 'Afghan=Good': 'QG', 'ChePu 206': 'QG', 'United XI': 'QG', 'Afridi XI': 'KK', 'Bottybotbots': 'QG', "Lachlan's Tigers": 'MS', 'Mohun Bagan': 'KK', 'Young Snipers': 'KK', 'SBClub': 'MS', 'Jhelum Lions': 'KK', 'Wolfberries Too': 'LCF', 'Cover point': 'LCF', 'blackcat': 'QG', 'Hasraz A': 'PZ', 'Shorkot Stallions': 'IU', 'Indian Capers': 'LCF'}
 franchise_name_list = list(set([team_franches[f] for f in team_franches.keys()]))
-league_ids = False
+league_ids = {'Youth': 97605, 'Bronze': 97604, 'Silver': 97603, 'Gold': 97602, 'Diamond': 97606, 'Platinum': 97607}
+league_rating_limits = {'Youth': 1000000, 'Bronze': 160000, 'Silver': 180000, 'Gold': 200000, 'Diamond': 220000, 'Platinum': 1000000}
 
 def fantasy_point_analysis():
     '''cupId = 874
@@ -54,6 +55,7 @@ def fantasy_point_analysis():
     allplayers['Age'] = FTPUtils.normalize_age_list(FTPUtils.normalize_age_list(allplayers['Age']), reverse=True)
     allplayers.insert(len(allplayers.columns), 'Total Fantasy Points', allplayers_ordered_fantasy_points)
 
+
 def verify_match_ratings(gameid, ratings_limit):
     match_ratings = FTPUtils.get_game_ratings_fantasy_tables(gameid, 'ratings')
     team_names = [team for team in match_ratings.columns[1:3]]
@@ -68,9 +70,11 @@ def verify_match_ratings(gameid, ratings_limit):
 
     return within_limits
 
+
 def verify_league_round_ratings(leagueid, round_n, ratings_limit):
     gameids = FTPUtils.get_league_gameids(leagueid, round_n)
     result_strings = []
+
 
     for gameid in gameids:
         team_within_limits = verify_match_ratings(gameid, ratings_limit)
@@ -100,18 +104,27 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
 
         if game_adjusted:
             formatted_result_string = game_result_string + '. (result already overturned)'
+            winning_franchise = team_franches[game_winner[0]]
+            losing_franchise = team_franches[game_winner[0]]
         else:
             formatted_result_string = game_result_string
             if not team_within_limits[game_winner[0]]:
                 if team_within_limits[game_loser[0]]:
                     formatted_result_string += ', but the result will be overturned to a win for {} due to overrating.'.format(game_loser[0])
+                    winning_franchise = team_franches[game_loser[0]]
+                    losing_franchise = team_franches[game_loser[0]]
                 else:
                     formatted_result_string += ', and the result will stand due to an overrating by both teams.'
+                    winning_franchise = team_franches[game_winner[0]]
             else:
                 if team_within_limits[game_loser[0]]:
                     formatted_result_string += '. Both teams fell within the rating limits.'
+                    winning_franchise = team_franches[game_winner[0]]
+                    losing_franchise = team_franches[game_loser[0]]
                 else:
                     formatted_result_string += ' despite an overrating by {}.'.format(game_loser[0])
+                    winning_franchise = team_franches[game_loser[0]]
+                    losing_franchise = team_franches[game_winner[0]]
 
         for team in [game_winner[0], game_loser[0]]:
             if team in formatted_result_string:
@@ -123,8 +136,17 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
     return result_strings
 
 
-
 if __name__ == '__main__':
+    round_n = 1
+    league_result_strings = {}
+    for league_name in league_ids.keys():
+        league_id = league_ids[league_name]
+        league_rating_limit = league_rating_limits[league_name]
+        league_results = verify_league_round_ratings(league_id, round_n, league_rating_limit)
+        league_result_strings[league_name] = league_results
+
+
+
     #PlayerDatabase.download_database('market-archive')
     #PresentData.save_team_training_graphs(4791, 'teams-weekly')
     #unique_database_list = list(set(['nzl-od-34', 'u16-weekly', 'market-archive', 'u21-national-squads', 'teams-weekly', 'nzl-t20-33', 'sa-od-42', 'PGT', 'u21-national-squads']))
