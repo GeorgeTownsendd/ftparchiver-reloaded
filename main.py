@@ -72,9 +72,9 @@ def verify_match_ratings(gameid, ratings_limit):
 
 
 def verify_league_round_ratings(leagueid, round_n, ratings_limit):
+    global franch_win_table
     gameids = FTPUtils.get_league_gameids(leagueid, round_n)
     result_strings = []
-
 
     for gameid in gameids:
         team_within_limits = verify_match_ratings(gameid, ratings_limit)
@@ -82,8 +82,9 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
         team_ids = FTPUtils.get_game_teamids(gameid)
         game_result_string = FTPUtils.get_game_scorecard_table(gameid)[0][1][0]
         game_winner, game_loser = None, None
-        game_adjusted = None
+        game_adjusted, game_tied = None, None
         if team_names[0] in game_result_string:
+            game_tied = False
             if 'adjusted' in game_result_string:
                 game_adjusted = True
                 game_winner = (team_names[1], team_ids[1])
@@ -93,6 +94,7 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
                 game_winner = (team_names[0], team_ids[0])
                 game_loser = (team_names[1], team_ids[1])
         elif team_names[1] in game_result_string:
+            game_tied = False
             if 'adjusted' in game_result_string:
                 game_adjusted = True
                 game_winner = (team_names[0], team_ids[0])
@@ -101,21 +103,43 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
                 game_adjusted = False
                 game_winner = (team_names[1], team_ids[1])
                 game_loser = (team_names[0], team_ids[0])
+        elif 'Match tied' in game_result_string:
+            game_tied = True
+            game_winner = (team_names[1], team_ids[1]) #game winner/loser is just a placeholder name for tied matches
+            game_loser = (team_names[0], team_ids[0])
 
         if game_adjusted:
             formatted_result_string = game_result_string + '. (result already overturned)'
             winning_franchise = team_franches[game_winner[0]]
-            losing_franchise = team_franches[game_winner[0]]
+            losing_franchise = team_franches[game_loser[0]]
+        elif game_tied:
+            formatted_result_string = game_result_string
+            if not team_within_limits[game_winner[0]] and not team_within_limits[game_loser[0]]:
+                formatted_result_string += ', and the result will stand due to an overrating by both teams.'
+                winning_franchise, losing_franchise = team_franches[game_winner[0]], team_franches[game_loser[0]]
+            elif not team_within_limits[game_winner[0]]:
+                formatted_result_string += ', but the result will be overturned to a win for {} due to an overrating.'.format(game_loser[0])
+                game_tied = False
+                game_winner, game_loser = game_loser, game_winner
+                winning_franchise, losing_franchise = team_franches[game_winner[0]], team_franches[game_loser[0]]
+            elif not team_within_limits[game_loser[0]]:
+                formatted_result_string += ', but the result will be overturned to a win for {} due to an overrating'.format(game_winner[0])
+                game_tied = False
+                winning_franchise, losing_franchise = team_franches[game_winner[0]], team_franches[game_loser[0]]
+            else:
+                formatted_result_string += '. Both teams fell within the rating limits.'
+                winning_franchise, losing_franchise = team_franches[game_winner[0]], team_franches[game_loser[0]]
         else:
             formatted_result_string = game_result_string
             if not team_within_limits[game_winner[0]]:
                 if team_within_limits[game_loser[0]]:
                     formatted_result_string += ', but the result will be overturned to a win for {} due to overrating.'.format(game_loser[0])
                     winning_franchise = team_franches[game_loser[0]]
-                    losing_franchise = team_franches[game_loser[0]]
+                    losing_franchise = team_franches[game_winner[0]]
                 else:
                     formatted_result_string += ', and the result will stand due to an overrating by both teams.'
                     winning_franchise = team_franches[game_winner[0]]
+                    losing_franchise = team_franches[game_loser[0]]
             else:
                 if team_within_limits[game_loser[0]]:
                     formatted_result_string += '. Both teams fell within the rating limits.'
@@ -126,6 +150,16 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
                     winning_franchise = team_franches[game_loser[0]]
                     losing_franchise = team_franches[game_winner[0]]
 
+        if not game_tied:
+            franch_win_table[winning_franchise][losing_franchise][0] += 2
+            franch_win_table[winning_franchise][losing_franchise][1].append(gameid)
+            franch_win_table[losing_franchise][winning_franchise][1].append(gameid)
+        else:
+            franch_win_table[winning_franchise][losing_franchise][0] += 1 #winning/losing franchise names are not actually winners/losers
+            franch_win_table[losing_franchise][winning_franchise][0] += 1
+            franch_win_table[winning_franchise][losing_franchise][1].append(gameid)
+            franch_win_table[losing_franchise][winning_franchise][1].append(gameid)
+
         for team in [game_winner[0], game_loser[0]]:
             if team in formatted_result_string:
                 formatted_result_string = formatted_result_string.replace(team, '{} ({})'.format(team, team_franches[team]))
@@ -135,17 +169,48 @@ def verify_league_round_ratings(leagueid, round_n, ratings_limit):
 
     return result_strings
 
+def print_results(franch_win_table):
+    for franch1 in franch_win_table.keys():
+        print('Points breakdown for {}:'.format(franch1))
+        points_sum = 0
+        for franch2 in franch_win_table[franch1].keys():
+            if franch1 != franch2:
+                franch1_points = franch_win_table[franch1][franch2][0]
+                franch2_points = franch_win_table[franch2][franch1][0]
+                pointdif = franch1_points - franch2_points
+                franch1_score = pointdif if pointdif > 0 else 0
+                points_sum += franch1_score
+
+                print('\tvs. {}'.format(franch2))
+                print('\t\tGames included: {}'.format(','.join(franch_win_table[franch1][franch2][1])))
+                print('\t\tHead to Head: {} - {}'.format(franch1_points, franch2_points))
+                print('\t\tResult: {} points for {}'.format(franch1_score, franch1))
+        print('\n\t{} total: {} points'.format(franch1, points_sum))
+        print('---')
 
 if __name__ == '__main__':
-    round_n = 1
-    league_result_strings = {}
-    for league_name in league_ids.keys():
-        league_id = league_ids[league_name]
-        league_rating_limit = league_rating_limits[league_name]
-        league_results = verify_league_round_ratings(league_id, round_n, league_rating_limit)
-        league_result_strings[league_name] = league_results
+    '''franch_win_table = {}
+    for franch_team in franchise_name_list:
+        game_results = {}
+        for verses_team in franchise_name_list:
+            if verses_team == franch_team:
+                game_results[verses_team] = ['-', []]
+            else:
+                game_results[verses_team] = [0, []]
+        franch_win_table[franch_team] = game_results
 
+    round_results = {}
+    for round_n in [1, 2, 3, 4, 5]:
+        league_round_result_strings = {}
+        for league_name in league_ids.keys():
+            league_id = league_ids[league_name]
+            league_rating_limit = league_rating_limits[league_name]
+            league_results = verify_league_round_ratings(league_id, round_n, league_rating_limit)
+            league_round_result_strings[league_name] = league_results
+        round_results[round_n] = league_round_result_strings'''
 
+    PSL5_franch_win_table = {'IU': {'IU': ['-', []], 'KK': [4, ['5615965', '5615957', '5615990', '5616024', '5616002', '5616270']], 'LCF': [10, ['5616263', '5616009', '5615991', '5615968', '5615950', '5616016']], 'QG': [8, ['5615989', '5616021', '5616273', '5615997', '5615974', '5615955']], 'MS': [6, ['5615996', '5615964', '5616017', '5616269', '5615992', '5615972']], 'PZ': [6, ['5615971', '5616008', '5615986', '5615951', '5616262', '5616022']]}, 'KK': {'IU': [8, ['5615965', '5615957', '5615990', '5616024', '5616002', '5616270']], 'KK': ['-', []], 'LCF': [4, ['5615999', '5615953', '5616015', '5616271', '5615983', '5615966']], 'QG': [2, ['5615979', '5615998', '5615959', '5615994', '5616010', '5616274']], 'MS': [6, ['5615993', '5616261', '5616003', '5615973', '5615956', '5616014']], 'PZ': [4, ['5616268', '5616005', '5615984', '5616013', '5615976', '5615961']]}, 'LCF': {'IU': [2, ['5616263', '5616009', '5615991', '5615968', '5615950', '5616016']], 'KK': [8, ['5615999', '5615953', '5616015', '5616271', '5615983', '5615966']], 'LCF': ['-', []], 'QG': [7, ['5615977', '5615982', '5615960', '5616007', '5616011', '5616264']], 'MS': [8, ['5615975', '5616023', '5616004', '5615981', '5616272', '5615954']], 'PZ': [8, ['5615985', '5615962', '5616020', '5616266', '5615995', '5615978']]}, 'QG': {'IU': [4, ['5615989', '5616021', '5616273', '5615997', '5615974', '5615955']], 'KK': [10, ['5615979', '5615998', '5615959', '5615994', '5616010', '5616274']], 'LCF': [5, ['5615977', '5615982', '5615960', '5616007', '5616011', '5616264']], 'QG': ['-', []], 'MS': [6, ['5616260', '5616000', '5615980', '5615952', '5615970', '5616012']], 'PZ': [6, ['5616001', '5615958', '5616019', '5616265', '5615988', '5615967']]}, 'MS': {'IU': [6, ['5615996', '5615964', '5616017', '5616269', '5615992', '5615972']], 'KK': [6, ['5615993', '5616261', '5616003', '5615973', '5615956', '5616014']], 'LCF': [4, ['5615975', '5616023', '5616004', '5615981', '5616272', '5615954']], 'QG': [6, ['5616260', '5616000', '5615980', '5615952', '5615970', '5616012']], 'MS': ['-', []], 'PZ': [10, ['5615969', '5615987', '5615963', '5616018', '5616006', '5616267']]}, 'PZ': {'IU': [6, ['5615971', '5616008', '5615986', '5615951', '5616262', '5616022']], 'KK': [8, ['5616268', '5616005', '5615984', '5616013', '5615976', '5615961']], 'LCF': [4, ['5615985', '5615962', '5616020', '5616266', '5615995', '5615978']], 'QG': [6, ['5616001', '5615958', '5616019', '5616265', '5615988', '5615967']], 'MS': [2, ['5615969', '5615987', '5615963', '5616018', '5616006', '5616267']], 'PZ': ['-', []]}}
+    #format_win_table(PSL5_franch_win_table)
 
     #PlayerDatabase.download_database('market-archive')
     #PresentData.save_team_training_graphs(4791, 'teams-weekly')

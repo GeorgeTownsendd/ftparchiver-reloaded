@@ -12,8 +12,6 @@ import re
 import pandas as pd
 import numpy as np
 import matplotlib
-from matplotlib import rcParams
-rcParams.update({'figure.autolayout': True})
 import seaborn as sns; sns.set_theme(color_codes=True)
 from math import floor, isnan
 pd.options.mode.chained_assignment = None  # default='warn'
