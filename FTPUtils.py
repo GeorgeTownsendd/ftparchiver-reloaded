@@ -9,6 +9,7 @@ import re
 import pandas as pd
 import numpy as np
 import matplotlib
+import datetime
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
 import seaborn as sns; sns.set_theme(color_codes=True)
@@ -279,6 +280,15 @@ def get_league_teamids(leagueid, league_format='league', knockout_round=None, in
 
     return teamids
 
+def get_team_season_matches(teamid):
+    browser.rbrowser.open('https://www.fromthepavilion.org/teamfixtures.htm?teamId={}#curr'.format(teamid))
+    page = str(browser.rbrowser.parsed)
+
+    data = pd.read_html(page)[1]
+    data['Date'] = [pd.to_pydatetime(date_str, '%d %b %Y %H:%M') for date_str in data['Date']]
+    data['gameId'] = set([x[7:] for x in re.findall('gameId=[0-9]+', page)])
+
+    return data
 
 def get_league_gameids(leagueid, round_n='latest', league_format='league'):
     if round_n == 'latest':

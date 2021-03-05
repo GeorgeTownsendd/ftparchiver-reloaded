@@ -9,6 +9,8 @@ import PresentData as PresentData
 import os
 import re
 import pandas as pd
+import pytz
+import datetime
 
 team_data = {
     'The Bengals': (425, 'PZ'),
@@ -56,6 +58,7 @@ team_data = {
 franchise_name_list = ['PZ', 'KK', 'LCF', 'QG', 'WIW', 'BT']
 gameid_scorecard = {}
 
+
 def teams_from_line(line):
     teams = line.split(' vs ')
     print(teams)
@@ -63,6 +66,7 @@ def teams_from_line(line):
     team2 = teams[1][:teams[1].index('(')-1]
 
     return team1, team2
+
 
 def fixtures_from_file(filename='data/psl6-fixtures.txt'):
     with open(filename, 'r') as f:
@@ -83,16 +87,15 @@ def fixtures_from_file(filename='data/psl6-fixtures.txt'):
 
     return games_by_round
 
-def get_season_matches(teamid):
-    browser.open('https://www.fromthepavilion.org/teamfixtures.htm?teamId={}#curr'.format(teamid))
-    page = str(browser.parsed)
 
-    data = pd.read_html(page)[1]
-    od_friendly = data[data['Class'] == 'One Day Friendly']
+def find_games(team1, team2):
+    current_datetime = datetime.datetime.now(datetime.timezone.utc)
 
-    return od_friendly
+    team1_season_games = FTPUtils.get_team_season_matches(team_data[team1][0])
+    team1_season_games = team1_season_games[team1_season_games['Class'] == 'One Day Friendly']
+    team1_season_games = team1_season_games[team1_season_games['Date'] > current_datetime]
 
-
+    return team1_season_games
 
 
 def get_round_franch_table(to_round):
@@ -120,7 +123,7 @@ def get_round_franch_table(to_round):
             team_standings = [[n for n in table_positions.iloc[team]] for team in range(len(table_positions))]
             team_standings = sorted(team_standings, key=lambda x: x[current_round])
 
-            team_sorted_list = [team_franches[t[0]] for t in team_standings]
+            team_sorted_list = [team_data[t[0]][1] for t in team_standings]
             points = [x for x in range(0, len(team_sorted_list))][::-1]
             for points, franch in zip(points, team_sorted_list):
                 franchise_points[franch] += points
@@ -147,8 +150,8 @@ def get_round_franch_table(to_round):
         inn1_team_name = [x for x in game[1].iloc[0].index][0]
         inn2_team_name = [x for x in game[3].iloc[0].index][0]
 
-        inn1_team_franch = team_franches[inn1_team_name]
-        inn2_team_franch = team_franches[inn2_team_name]
+        inn1_team_franch = team_data[inn1_team_name][1]
+        inn2_team_franch = team_data[inn2_team_name][1]
 
         inn1_wicket_over_string = game[1].iloc[12][1]
         inn1_wickets, inn1_overs = [''.join([c for c in sideofcomma if c.isdigit() or c == '.']) for sideofcomma in
