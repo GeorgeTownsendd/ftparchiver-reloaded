@@ -1,7 +1,7 @@
 import CoreUtils
 
 CoreUtils.initialize_browser()
-browser = CoreUtils.browser
+browser = CoreUtils.browser.rbrowser
 
 import FTPUtils as FTPUtils
 import PlayerDatabase as PlayerDatabase
@@ -10,9 +10,89 @@ import os
 import re
 import pandas as pd
 
-team_franches = {'Allmänna Idrottsklubben': 'QG', 'Hasraz': 'PZ', 'Pakshaheen': 'MS', 'Dead Stroker': 'MS', 'Caterham Crusaders': 'KK', 'Shahzaday11': 'LCF', 'London Spirit': 'KK', 'TRAL TIGERS': 'IU', 'Better Late Than Pregnant': 'LCF', 'Maiden Over CC': 'IU', 'The Hybrid Dolphins': 'PZ', "South London's Number One CC": 'PZ', 'Al Khobar Falcons': 'IU', 'ST 96': 'PZ', 'Jacksons Barbers': 'IU', 'Nepali Gaints': 'IU', 'The Humpty Elephants': 'MS', 'Legend Super Chicken Samurai': 'MS', 'Blade Brakers': 'LCF', 'Harrow CC': 'PZ', 'Afghan=Good': 'QG', 'ChePu 206': 'QG', 'United XI': 'QG', 'Afridi XI': 'KK', 'Bottybotbots': 'QG', "Lachlan's Tigers": 'MS', 'Mohun Bagan': 'KK', 'Young Snipers': 'KK', 'SBClub': 'MS', 'Jhelum Lions': 'KK', 'Wolfberries Too': 'LCF', 'Cover point': 'LCF', 'blackcat': 'QG', 'Hasraz A': 'PZ', 'Shorkot Stallions': 'IU', 'Indian Capers': 'LCF'}
-franchise_name_list = list(set([team_franches[f] for f in team_franches.keys()]))
+team_data = {
+    'The Bengals': (425, 'PZ'),
+    'Al Khobar Falcons': (3761, 'PZ'),
+    'The Hybrid Dolphins': (3721, 'PZ'),
+    'Harrow CC': (5914, 'PZ'),
+    'Aqrabiyah Antlers': (1768, 'PZ'),
+    'Penguins717': (6378, 'PZ'),
+
+    'Almost': (3661, 'KK'),
+    'Jhelum Lions': (3710, 'KK'),
+    'Hasraz A': (4822, 'KK'),
+    'Afridi XI': (534, 'KK'),
+    'Aggressive Vegetables': (595, 'KK'),
+    'Shorkot Stallions': (3795, 'KK'),
+
+    'Cover point': (376, 'LCF'),
+    'Wolfberries Too': (1001, 'LCF'),
+    'Blade Brakers': (4024, 'LCF'),
+    'wolfberries': (1066, 'LCF'),
+    'Shahzaday11': (3765, 'LCF'),
+    'Mohun Bagan': (4345, 'LCF'),
+
+    'Allmanna Idrottsklubben': (5158, 'QG'),
+    'Bottybotbots': (4791, 'QG'),
+    'Jacksons Barbers': (3377, 'QG'),
+    'ST 96': (31, 'QG'),
+    'TRAL TIGERS': (3781, 'QG'),
+    'Afghan=Good': (4175, 'QG'),
+
+    'Caterham Crusaders': (791, 'WIW'),
+    'The Mean Machine': (567, 'WIW'),
+    'Silly Mid-Off CC': (6050, 'WIW'),
+    'Maiden Over CC': (1997, 'WIW'),
+    'United XI': (262, 'WIW'),
+    'The Tourists': (6195, 'WIW'),
+
+    'Glen Fruin': (5664, 'BT'),
+    'Hoarders CC': (1389, 'BT'),
+    'South Lanarkshire Rapids': (3929, 'BT'),
+    'Irvine Renegades': (747, 'BT'),
+    'Sitakunda Leopards': (233, 'BT'),
+    'Brew Boys': (2156, 'BT')
+}
+franchise_name_list = ['PZ', 'KK', 'LCF', 'QG', 'WIW', 'BT']
 gameid_scorecard = {}
+
+def teams_from_line(line):
+    teams = line.split(' vs ')
+    print(teams)
+    team1 = teams[0][:teams[0].index('(')-1]
+    team2 = teams[1][:teams[1].index('(')-1]
+
+    return team1, team2
+
+def fixtures_from_file(filename='data/psl6-fixtures.txt'):
+    with open(filename, 'r') as f:
+        fixture_data = ''.join([line for line in f.readlines()])
+    fixture_data_by_round = fixture_data.split('---')
+
+    games_by_round = {}
+    for n, round_data in enumerate(fixture_data_by_round):
+        n += 1
+        games_by_round[n] = []
+        games = round_data.split('\n')
+        for g_line in games:
+            if 'https://' in g_line:
+                g_line = g_line[:g_line.index('https://')-1]
+            if '(' in g_line and 'vs' in g_line:
+                team1, team2 = teams_from_line(g_line)
+                games_by_round[n].append((team1, team2))
+
+    return games_by_round
+
+def get_season_matches(teamid):
+    browser.open('https://www.fromthepavilion.org/teamfixtures.htm?teamId={}#curr'.format(teamid))
+    page = str(browser.parsed)
+
+    data = pd.read_html(page)[1]
+    od_friendly = data[data['Class'] == 'One Day Friendly']
+
+    return od_friendly
+
+
 
 
 def get_round_franch_table(to_round):
@@ -233,7 +313,7 @@ def create_advanced_table(round_n):
 
 if __name__ == '__main__':
     #PresentData.save_team_training_graphs(4791, 'teams-weekly')
-    unique_database_list = list(set(['nzl-od-34', 'u16-weekly', 'u21-national-squads', 'teams-weekly', 'nzl-t20-33', 'sa-od-42', 'PGT', 'u21-national-squads']))#', market-archive']))
+    #unique_database_list = list(set(['nzl-od-34', 'u16-weekly', 'u21-national-squads', 'teams-weekly', 'nzl-t20-33', 'sa-od-42', 'PGT', 'u21-national-squads']))#', market-archive']))
     #for db in unique_database_list:
     #    PlayerDatabase.download_database(db)
     #db = PlayerDatabase.watch_database_list(unique_database_list)
