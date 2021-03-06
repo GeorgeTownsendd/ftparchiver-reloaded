@@ -61,7 +61,6 @@ gameid_scorecard = {}
 
 def teams_from_line(line):
     teams = line.split(' vs ')
-    print(teams)
     team1 = teams[0][:teams[0].index('(')-1]
     team2 = teams[1][:teams[1].index('(')-1]
 
@@ -74,6 +73,7 @@ def fixtures_from_file(filename='data/psl6-fixtures.txt'):
     fixture_data_by_round = fixture_data.split('---')
 
     games_by_round = {}
+    game_df = pd.DataFrame()
     for n, round_data in enumerate(fixture_data_by_round):
         n += 1
         games_by_round[n] = []
@@ -85,17 +85,99 @@ def fixtures_from_file(filename='data/psl6-fixtures.txt'):
                 team1, team2 = teams_from_line(g_line)
                 games_by_round[n].append((team1, team2))
 
+
     return games_by_round
 
 
 def find_games(team1, team2):
     current_datetime = datetime.datetime.now(datetime.timezone.utc)
 
-    team1_season_games = FTPUtils.get_team_season_matches(team_data[team1][0])
-    team1_season_games = team1_season_games[team1_season_games['Class'] == 'One Day Friendly']
-    team1_season_games = team1_season_games[team1_season_games['Date'] > current_datetime]
+    season_games = FTPUtils.get_team_season_matches(team_data[team1][0])
+    season_od_friendly_games = season_games[season_games['Class'] == 'One Day Friendly']
+    future_od_friendly_games = season_od_friendly_games[season_od_friendly_games['Date'].dt.to_pydatetime() > current_datetime]
+    future_games_against_team2 = future_od_friendly_games[future_od_friendly_games['Teams'].str.contains(team2)]
 
-    return team1_season_games
+    return future_games_against_team2
+
+def game_df_from_fixtures(max_round='all'):
+    games_by_round = fixtures_from_file()
+    games_list = []
+
+    if isinstance(max_round, str):
+        max_round = 100
+
+    for round_n in list(games_by_round.keys())[:max_round]:
+        for team1, team2 in games_by_round[round_n]:
+            game_search = find_games(team1, team2)
+            if len(game_search) == 1:
+                game_organised = True
+                gameId = game_search['gameId'].iloc[0]
+                date = game_search['Date'].iloc[0]
+                game_finished = None
+                result = None
+            else:
+                game_organised = False
+                gameId = None
+                date = None
+                game_finished = None
+                result = None
+
+            games_list.append([team1, team2, round_n, game_organised, gameId, date, game_finished, result])
+
+    games_df = pd.DataFrame(games_list, columns=['team1', 'team2', 'round_n', 'game_organised', 'gameId', 'Date', 'game_finished', 'result'])
+
+    return games_df
+
+def game_data_from_id(gameid):
+    global gameid_scorecard
+    if gameid in gameid_scorecard.keys():
+        game = gameid_scorecard[gameid]
+    else:
+        game = FTPUtils.get_game_scorecard_table(gameid)
+        gameid_scorecard[gameid] = game
+
+    home_team_id = int(game[5][1][0])
+    away_team_id = int(game[5][1][1])
+
+    inn1_team_name = [x for x in game[1].iloc[0].index][0]
+    inn2_team_name = [x for x in game[3].iloc[0].index][0]
+
+    try:
+        inn1_team_franch = team_data[inn1_team_name][1]
+    except KeyError:
+        inn1_team_franch = None
+    try:
+        inn2_team_franch = team_data[inn2_team_name][1]
+    except KeyError:
+        inn2_team_franch = None
+
+    inn1_wicket_over_string = game[1].iloc[12][1]
+    inn1_wickets, inn1_overs = [''.join([c for c in sideofcomma if c.isdigit() or c == '.']) for sideofcomma in
+                                inn1_wicket_over_string.split(',')]
+
+    inn2_wicket_over_string = game[3].iloc[12][1]
+    inn2_wickets, inn2_overs = [''.join([c for c in sideofcomma if c.isdigit() or c == '.']) for sideofcomma in
+                                inn2_wicket_over_string.split(',')]
+
+    inn1_wickets, inn2_wickets = int(inn1_wickets), int(inn2_wickets)
+
+    inn1_runs = int(game[1].iloc[12][3])
+    inn2_runs = int(game[3].iloc[12][3])
+
+    home_bats = FTPUtils.get_team_name(home_team_id) == inn1_team_name
+
+    if home_bats:
+        teamorder = [home_team_id, away_team_id]
+    else:
+        teamorder = [away_team_id, home_team_id]
+
+    game = [gameid, teamorder, [inn1_team_name, inn2_team_name], [inn1_runs, inn2_runs],
+            [inn1_wickets, inn2_wickets], [inn1_overs, inn2_overs], [inn1_team_franch, inn2_team_franch]]
+
+    if not home_bats:  # reverse so home team is first
+        game = [game[0]] + [d[::-1] for d in game[1:]]
+
+    return game
 
 
 def get_round_franch_table(to_round):
@@ -138,48 +220,7 @@ def get_round_franch_table(to_round):
 
     game_data = []
     for gameid in big_gameid_list:
-        if gameid in gameid_scorecard.keys():
-            game = gameid_scorecard[gameid]
-        else:
-            game = FTPUtils.get_game_scorecard_table(gameid)
-            gameid_scorecard[gameid] = game
-
-        home_team_id = int(game[5][1][0])
-        away_team_id = int(game[5][1][1])
-
-        inn1_team_name = [x for x in game[1].iloc[0].index][0]
-        inn2_team_name = [x for x in game[3].iloc[0].index][0]
-
-        inn1_team_franch = team_data[inn1_team_name][1]
-        inn2_team_franch = team_data[inn2_team_name][1]
-
-        inn1_wicket_over_string = game[1].iloc[12][1]
-        inn1_wickets, inn1_overs = [''.join([c for c in sideofcomma if c.isdigit() or c == '.']) for sideofcomma in
-                                    inn1_wicket_over_string.split(',')]
-
-        inn2_wicket_over_string = game[3].iloc[12][1]
-        inn2_wickets, inn2_overs = [''.join([c for c in sideofcomma if c.isdigit() or c == '.']) for sideofcomma in
-                                    inn2_wicket_over_string.split(',')]
-
-        inn1_wickets, inn2_wickets = int(inn1_wickets), int(inn2_wickets)
-
-        inn1_runs = int(game[1].iloc[12][3])
-        inn2_runs = int(game[3].iloc[12][3])
-
-        home_bats = FTPUtils.get_team_name(home_team_id) == inn1_team_name
-
-        if home_bats:
-            teamorder = [home_team_id, away_team_id]
-        else:
-            teamorder = [away_team_id, home_team_id]
-
-        game = [gameid, teamorder, [inn1_team_name, inn2_team_name], [inn1_runs, inn2_runs],
-                [inn1_wickets, inn2_wickets], [inn1_overs, inn2_overs], [inn1_team_franch, inn2_team_franch]]
-
-        if not home_bats:  # reverse so home team is first
-            game = [game[0]] + [d[::-1] for d in game[1:]]
-
-        game_data.append(game)
+        game_data.append(game_data_from_id(gameid))
 
     franchise_data = []
     for franchise in franchise_name_list:

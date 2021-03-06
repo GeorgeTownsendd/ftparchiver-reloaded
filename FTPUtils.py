@@ -285,7 +285,7 @@ def get_team_season_matches(teamid):
     page = str(browser.rbrowser.parsed)
 
     data = pd.read_html(page)[1]
-    data['Date'] = [pd.to_pydatetime(date_str, '%d %b %Y %H:%M') for date_str in data['Date']]
+    data['Date'] = [datetime.datetime.strptime(date_str+' -0000', '%d %b %Y %H:%M %z') for date_str in data['Date']]
     data['gameId'] = set([x[7:] for x in re.findall('gameId=[0-9]+', page)])
 
     return data
